@@ -254,7 +254,6 @@ let project = Project(
                 .target(name: "Models"),
                 .target(name: "ClientAuth"),
                 .target(name: "ClientRoom"),
-                .target(name: "ClientWebSocket"),
                 .external(name: "ComposableArchitecture")
             ]
         ),
