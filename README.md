@@ -27,7 +27,8 @@
 ### Module Graph
 
 <p align="center">
-  <img width="800" alt="earie-module-graph-dark" src="https://github.com/user-attachments/assets/fe89ea85-7a6b-4778-a349-3fd55a5b1a34" />
+  <img width="800" alt="earie-module-graph-dark (1)" src="https://github.com/user-attachments/assets/cd866ee2-ea2b-41a3-a8e5-d756e388670c" />
+
 
 </p>
 
