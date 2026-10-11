@@ -5,17 +5,41 @@ let project = Project(
     targets: [
         .target(name: "Models",
                 destinations: .iOS,
-                product: .framework,
+                product: .staticFramework,
                 bundleId: "io.tuist.MGAME.Models",
                 sources: ["Models/Sources/**"]
                ),
         
             .target(name: "ClientAuth",
                     destinations: .iOS,
-                    product: .framework,
+                    product: .staticFramework,
                     bundleId: "io.tuist.MGAME.ClientAuth",
-                    sources: ["Clients/AuthClient/Sources/**"],
+                    sources: ["Clients/AuthClient/Interface/Sources/**"],
                     dependencies: [
+                        .target(name: "Models"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+        
+            .target(name: "ClientAuthLive",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientAuthLive",
+                    sources: ["Clients/AuthClient/Live/Sources/**"],
+                    dependencies: [
+                        .target(name: "ClientAuth"),
+                        .target(name: "Models"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+        
+            .target(name: "ClientAuthTest",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientAuthTest",
+                    sources: ["Clients/AuthClient/Test/Sources/**"],
+                    dependencies: [
+                        .target(name: "ClientAuth"),
                         .target(name: "Models"),
                         .external(name: "ComposableArchitecture")
                     ]
@@ -24,43 +48,192 @@ let project = Project(
             .target(
                 name: "ClientRoom",
                 destinations: .iOS,
-                product: .framework,
+                product: .staticFramework,
                 bundleId: "io.tuist.MGAME.ClientRoom",
-                sources: ["Clients/RoomClient/Sources/**"],
-                dependencies: [.target(name: "Models"), .external(name: "ComposableArchitecture")]
+                sources: ["Clients/RoomClient/Interface/Sources/**"],
+                dependencies: [
+                    .target(name: "Models"),
+                    .external(name: "ComposableArchitecture")
+                ]
+            ),
+        
+            .target(name: "ClientRoomLive",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientRoomLive",
+                    sources: ["Clients/RoomClient/Live/Sources/**"],
+                    dependencies: [
+                        .target(name: "ClientRoom"),
+                        .target(name: "Models"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+        
+            .target(
+                name: "ClientRoomTest",
+                destinations: .iOS,
+                product: .staticFramework,
+                bundleId: "io.tuist.MGAME.ClientRoomTest",
+                sources: ["Clients/RoomClient/Test/Sources/**"],
+                dependencies: [
+                    .target(name: "ClientRoom"),
+                    .target(name: "Models"),
+                    .external(name: "ComposableArchitecture")
+                ]
             ),
         
             .target(
-                name: "ClientWebSocket",
+                name: "ClientRoomSession",
                 destinations: .iOS,
-                product: .framework,
-                bundleId: "io.tuist.MGAME.ClientWebSocket",
-                sources: ["Clients/WebSocketClient/Sources/**"],
-                dependencies: [.target(name: "Models"), .external(name: "ComposableArchitecture")]
+                product: .staticFramework,
+                bundleId: "io.tuist.MGAME.ClientRoomSession",
+                sources: ["Clients/RoomSessionClient/Interface/Sources/**"],
+                dependencies: [
+                    .target(name: "Models"),
+                    .external(name: "ComposableArchitecture")
+                ]
             ),
         
+            .target(name: "ClientRoomSessionLive",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientRoomSessionLive",
+                    sources: ["Clients/RoomSessionClient/Live/Sources/**"],
+                    dependencies: [
+                        .target(name: "Models"),
+                        .target(name: "ClientRoomSession"),
+                        .target(name: "ClientWebSocket"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+        
+            .target(name: "ClientRoomSessionTest",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientRoomSessionTest",
+                    sources: ["Clients/RoomSessionClient/Test/Sources/**"],
+                    dependencies: [
+                        .target(name: "Models"),
+                        .target(name: "ClientRoomSession"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+        
+            .target(name: "ClientWebSocket",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientWebSocket",
+                    sources: ["Clients/WebSocketClient/Interface/Sources/**"],
+                    dependencies: [
+                        .target(name: "Models"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+        
+        
+            .target(name: "ClientWebSocketLive",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientWebSocketLive",
+                    sources: ["Clients/WebSocketClient/Live/Sources/**"],
+                    dependencies: [
+                        .target(name: "Models"),
+                        .target(name: "ClientWebSocket"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+        
+            .target(name: "ClientWebSocketTest",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientWebSocketTest",
+                    sources: ["Clients/WebSocketClient/Test/Sources/**"],
+                    dependencies: [
+                        .target(name: "Models"),
+                        .target(name: "ClientWebSocket"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+        
+        
+        
             .target(
-                name: "ClientMusic",
+                name: "ClientMusicEntitlement",
                 destinations: .iOS,
-                product: .framework,
-                bundleId: "io.tuist.MGAME.ClientMusic",
-                sources: ["Clients/MusicClient/Sources/**"],
-                dependencies: [.target(name: "Models"), .external(name: "ComposableArchitecture")]
+                product: .staticFramework,
+                bundleId: "io.tuist.MGAME.ClientMusicEntitlement",
+                sources: ["Clients/MusicEntitlementClient/Interface/Sources/**"],
+                dependencies: [
+                    .target(name: "Models"),
+                    .external(name: "ComposableArchitecture")
+                ]
             ),
+        
+            .target(name: "ClientMusicEntitlementLive",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientMusicEntitlementLive",
+                    sources: ["Clients/MusicEntitlementClient/Live/Sources/**"],
+                    dependencies: [
+                        .target(name: "Models"),
+                        .target(name: "ClientMusicEntitlement"),
+                        .external(name: "ComposableArchitecture")
+                    ]),
+        
+            .target(name: "ClientMusicEntitlementTest",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientMusicEntitlementTest",
+                    sources: ["Clients/MusicEntitlementClient/Test/Sources/**"],
+                    dependencies: [
+                        .target(name: "Models"),
+                        .target(name: "ClientMusicEntitlement"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
         
             .target(
                 name: "ClientAudio",
                 destinations: .iOS,
-                product: .framework,
+                product: .staticFramework,
                 bundleId: "io.tuist.MGAME.ClientAudio",
-                sources: ["Clients/AudioClient/Sources/**"],
-                dependencies: []
+                sources: ["Clients/AudioClient/Interface/Sources/**"],
+                dependencies: [
+                    .target(name: "Models"),
+                    .external(name: "ComposableArchitecture")
+                ]
+            ),
+        
+            .target(
+                name: "ClientAudioLive",
+                destinations: .iOS,
+                product: .staticFramework,
+                bundleId: "io.tuist.MGAME.ClientAudioLive",
+                sources: ["Clients/AudioClient/Live/Sources/**"],
+                dependencies: [
+                    .target(name: "Models"),
+                    .target(name: "ClientAudio"),
+                    .external(name: "ComposableArchitecture")
+                ]
+            ),
+        
+            .target(
+                name: "ClientAudioTest",
+                destinations: .iOS,
+                product: .staticFramework,
+                bundleId: "io.tuist.MGAME.ClientAudioTest",
+                sources: ["Clients/AudioClient/Test/Sources/**"],
+                dependencies: [
+                    .target(name: "Models"),
+                    .target(name: "ClientAudio"),
+                    .external(name: "ComposableArchitecture")
+                ]
             ),
         
             .target(
                 name: "FeatureLogin",
                 destinations: .iOS,
-                product: .framework,
+                product: .staticFramework,
                 bundleId: "io.tuist.MGAME.FeatureLogin",
                 sources: ["Features/Login/Sources/**"],
                 dependencies: [
@@ -73,7 +246,7 @@ let project = Project(
         .target(
             name: "FeatureLobby",
             destinations: .iOS,
-            product: .framework,
+            product: .staticFramework,
             bundleId: "io.tuist.MGAME.FeatureLobby",
             sources: ["Features/Lobby/Sources/**"],
             dependencies: [
@@ -81,55 +254,86 @@ let project = Project(
                 .target(name: "Models"),
                 .target(name: "ClientAuth"),
                 .target(name: "ClientRoom"),
-                .external(name: "ComposableArchitecture")
-            ]
-        ),
-        
-        .target(
-            name: "FeatureGame",
-            destinations: .iOS,
-            product: .framework,
-            bundleId: "io.tuist.MGAME.FeatureGame",
-            sources: ["Features/Game/Sources/**"],
-            dependencies: [
-                .target(name: "MDS"),
-                .target(name: "Models"),
                 .target(name: "ClientWebSocket"),
-                .target(name: "ClientMusic"),
-                .target(name: "ClientAudio"),
                 .external(name: "ComposableArchitecture")
             ]
         ),
         
-        .target(name: "MDS",
+            .target(
+                name: "FeatureRoom",
                 destinations: .iOS,
-                product: .framework,
-                bundleId: "io.tuist.MGAME.MDS",
-                sources: ["Shared/MDS/Sources/**"],
-                resources: ["Shared/MDS/Resources/**"]
-               ),
-        
-        .target(
-            name: "M_GAME",
-            destinations: .iOS,
-            product: .app,
-            bundleId: "io.tuist.M-GAME",
-            infoPlist: .extendingDefault(
-                with: [
-                    "UILaunchScreen": [
-                        "UIColorName": "",
-                        "UIImageName": "",
-                    ],
+                product: .staticFramework,
+                bundleId: "io.tuist.MGAME.FeatureRoom",
+                sources: ["Features/Room/Sources/**"],
+                dependencies: [
+                    .target(name: "MDS"),
+                    .target(name: "Models"),
+                    .target(name: "ClientRoomSession"),
+                    .target(name: "ClientMusicEntitlement"),
+                    .target(name: "ClientAudio"),
+                    .external(name: "ComposableArchitecture")
                 ]
             ),
-            sources: ["M_GAME/Sources/**"],
-            resources: ["M_GAME/Resources/**"],
-            dependencies: [
-                .target(name: "FeatureLogin"),
-                .target(name: "FeatureLobby"),
-                .target(name: "FeatureGame"),
-                .external(name: "ComposableArchitecture")
-            ]
-        ),
+        
+            .target(name: "FeatureRoomTest",
+                    destinations: .iOS,
+                    product: .unitTests,
+                    bundleId: "io.tuist.MGAME.FeatureRoomTest",
+                    sources: ["Features/Room/Tests/**"],
+                    dependencies: [
+                        .target(name: "FeatureRoom"),
+                        .target(name: "ClientRoomSessionTest"),
+                        .target(name: "ClientAudioTest"),
+                        .target(name: "ClientMusicEntitlementTest")
+                    ]
+                   ),
+        
+            .target(name: "MDS",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.MDS",
+                    sources: ["Shared/MDS/Sources/**"],
+                    resources: ["Shared/MDS/Resources/**"]
+                   ),
+        
+            .target(
+                name: "M_GAME",
+                destinations: .iOS,
+                product: .app,
+                bundleId: "io.tuist.M-GAME",
+                infoPlist: .extendingDefault(
+                    with: [
+                        "UILaunchScreen": [
+                            "UIColorName": "",
+                            "UIImageName": "",
+                        ],
+                        "NSAppleMusicUsageDescription": "음악 퀴즈를 위해 Apple Music 접근이 필요합니다.",
+                        "NSAppTransportSecurity": [
+                            "NSAllowsArbitraryLoads": true
+                        ],
+                        "SERVER_HOST": "$(SERVER_HOST)"
+                    ]
+                ),
+                sources: ["M_GAME/Sources/**"],
+                resources: ["M_GAME/Resources/**"],
+                dependencies: [
+                    .target(name: "FeatureLogin"),
+                    .target(name: "FeatureLobby"),
+                    .target(name: "FeatureRoom"),
+                    .target(name: "ClientAudioLive"),
+                    .target(name: "ClientAuthLive"),
+                    .target(name: "ClientRoomLive"),
+                    .target(name: "ClientMusicEntitlementLive"),
+                    .target(name: "ClientRoomSessionLive"),
+                    .target(name: "ClientWebSocketLive"),
+                    .external(name: "ComposableArchitecture")
+                ],
+                settings: .settings(
+                    configurations: [
+                        .debug(name: "Debug", xcconfig: "Configs/Secrets.xcconfig"),
+                        .release(name: "Release", xcconfig: "Configs/Secrets.xcconfig"),
+                    ]
+                    )
+            ),
     ]
 )
