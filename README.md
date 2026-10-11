@@ -1,4 +1,4 @@
-<div align="center">
+
   <img src="https://github.com/user-attachments/assets/cf750345-e78e-4956-9bb1-1d9f029db316" width="100" alt="Earie 앱 아이콘" />
   <h1>Earie</h1>
   <p><strong>Real-time Multiplayer Music Quiz</strong></p>
@@ -22,8 +22,13 @@
 
 <p align="center">
   <img width="800" alt="earie-architecture-dark" src="https://github.com/user-attachments/assets/177270a7-5aa3-47fc-8288-2f787e0cd949" />
+</p>
 
-  
+### Module Graph
+
+<p align="center">
+  <img width="800" alt="earie-module-graph-dark" src="https://github.com/user-attachments/assets/fe89ea85-7a6b-4778-a349-3fd55a5b1a34" />
+
 </p>
 
 ## How It Works
