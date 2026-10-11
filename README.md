@@ -1,4 +1,4 @@
-
+<div align="center">
   <img src="https://github.com/user-attachments/assets/cf750345-e78e-4956-9bb1-1d9f029db316" width="100" alt="Earie 앱 아이콘" />
   <h1>Earie</h1>
   <p><strong>Real-time Multiplayer Music Quiz</strong></p>
