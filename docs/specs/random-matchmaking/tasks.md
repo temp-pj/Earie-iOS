@@ -17,15 +17,15 @@
 
 | ID | 맡는 범위 | 참조할 문서 섹션 | 이슈 |
 |---|---|---|---|
-| T0 | iOS 저장소 AGENTS.md / CLAUDE.md를 develop에 추가 | AGENTS.md 초안 | 생성 전 |
-| T1 | 공통 계약: Models v1 타입과 `MessageCodec`, `SessionClient`·`CatalogClient`·`CategoryPreferenceClient` 인터페이스와 Test 구현, 이번 기능의 모든 신규 Tuist 타깃 선언, `fixtures/`를 `ModelsTests` 리소스로 연결한 코덱 테스트, CI 테스트 단계 | requirements 3, 7(REQ-FAIL-04), 9(EDGE-15, 16), 12(DONE-01, 02, 14) / design 2, 3, 4, 6, 7 | 생성 전 |
-| T2 | `ClientSessionLive`: v1 URL, 연결마다 새 스트림, `SessionEvent` 변환, 디코딩 실패 폐기, 송신 | requirements 7(REQ-MATCH-02, REQ-FAIL-03, 04) / design 7, 9, 11, 13 | 생성 전 |
-| T3 | `ClientCatalogLive`와 앱 번들 카탈로그(`fixtures/catalog-projection.json`을 그대로 복사) | requirements 7(REQ-CAT-06~08) / design 6, 7, 13 | 생성 전 |
-| T4 | `FeatureLobby`: 조건 선택, 후보 활성 판정, 매칭 대기, 취소, 저장·복원 | requirements 7(REQ-CAT, REQ-MATCH-01·03~06, REQ-CANCEL-01·03), 8, 9, 11 / design 5, 6, 7, 8 | 생성 전 |
-| T5 | `FeatureRoom` v1: WELCOME으로 방 생성, 방 이벤트, 시작, 나가기, 게임 연결, GAME_ABORTED, 결과, delegate 송신 | requirements 7(REQ-ROOM, REQ-GAME), 8, 9 / design 5, 6, 7, 8, 12 | 생성 전 |
-| T6 | App 통합: `AppFeature` 연결 수명·거르기·라우팅·알럿, `RootView`, live 주입, 구 모듈과 구 타입 삭제 | requirements 7(REQ-MATCH-02·07, REQ-CANCEL-02·04, REQ-FAIL, REQ-FILTER, REQ-GAME-07), 8, 9 / design 1, 5, 8, 9, 10, 11, 12 | 생성 전 |
-| T7 | 로컬 v1 서버에 실제로 붙는 통합 테스트와 CI 연결 (PR에서만 실행) | requirements 12(DONE-13) / design 13 | 생성 전 |
-| S1 | (서버 저장소 Earie-ws) 서버 시작 시 DB 연결 필수 조건 제거 | 이 문서 11번 | 생성 전 |
+| T0 | iOS 저장소 AGENTS.md / CLAUDE.md를 develop에 추가 | AGENTS.md 초안 | 없음 (커밋 f79f759) |
+| T1 | 공통 계약: Models v1 타입과 `MessageCodec`, `SessionClient`·`CatalogClient`·`CategoryPreferenceClient` 인터페이스와 Test 구현, 이번 기능의 모든 신규 Tuist 타깃 선언, `fixtures/`를 `ModelsTests` 리소스로 연결한 코덱 테스트, CI 테스트 단계 | requirements 3, 7(REQ-FAIL-04), 9(EDGE-15, 16), 12(DONE-01, 02, 14) / design 2, 3, 4, 6, 7 | [#29](https://github.com/temp-pj/Earie-iOS/issues/29) |
+| T2 | `ClientSessionLive`: v1 URL, 연결마다 새 스트림, `SessionEvent` 변환, 디코딩 실패 폐기, 송신 | requirements 7(REQ-MATCH-02, REQ-FAIL-03, 04) / design 7, 9, 11, 13 | [#30](https://github.com/temp-pj/Earie-iOS/issues/30) |
+| T3 | `ClientCatalogLive`와 앱 번들 카탈로그(`fixtures/catalog-projection.json`을 그대로 복사) | requirements 7(REQ-CAT-06~08) / design 6, 7, 13 | [#31](https://github.com/temp-pj/Earie-iOS/issues/31) |
+| T4 | `FeatureLobby`: 조건 선택, 후보 활성 판정, 매칭 대기, 취소, 저장·복원 | requirements 7(REQ-CAT, REQ-MATCH-01·03~06, REQ-CANCEL-01·03), 8, 9, 11 / design 5, 6, 7, 8 | [#32](https://github.com/temp-pj/Earie-iOS/issues/32) |
+| T5 | `FeatureRoom` v1: WELCOME으로 방 생성, 방 이벤트, 시작, 나가기, 게임 연결, GAME_ABORTED, 결과, delegate 송신 | requirements 7(REQ-ROOM, REQ-GAME), 8, 9 / design 5, 6, 7, 8, 12 | [#33](https://github.com/temp-pj/Earie-iOS/issues/33) |
+| T6 | App 통합: `AppFeature` 연결 수명·거르기·라우팅·알럿, `RootView`, live 주입, 구 모듈과 구 타입 삭제 | requirements 7(REQ-MATCH-02·07, REQ-CANCEL-02·04, REQ-FAIL, REQ-FILTER, REQ-GAME-07), 8, 9 / design 1, 5, 8, 9, 10, 11, 12 | [#34](https://github.com/temp-pj/Earie-iOS/issues/34) |
+| T7 | 로컬 v1 서버에 실제로 붙는 통합 테스트와 CI 연결 (PR에서만 실행) | requirements 12(DONE-13) / design 13 | [#35](https://github.com/temp-pj/Earie-iOS/issues/35) |
+| S1 | (서버 저장소 Earie-ws) 서버 시작 시 DB 연결 필수 조건 제거 | 이 문서 11번 | [Earie-ws#44](https://github.com/temp-pj/Earie-ws/issues/44) |
 
 - 근거: T1에서 공유 타입, 인터페이스, Tuist 타깃을 먼저 확정해야 T2~T5가 서로의 파일을 건드리지 않고 병렬로 돈다. Project.swift는 여러 작업이 동시에 고치면 반드시 충돌하는 파일이라 T1(추가)과 T6(삭제)만 수정한다.
 
