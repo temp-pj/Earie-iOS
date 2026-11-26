@@ -8,12 +8,28 @@ platform :ios do
     sh("cd .. && tuist install")
     sh("cd .. && tuist generate --no-open")
     sh(
-      "cd .. && xcodebuild " \
+      "set -o pipefail && cd .. && xcodebuild " \
       "-workspace M_GAME.xcworkspace " \
       "-scheme M_GAME " \
       "-destination 'platform=iOS Simulator,name=iPhone 16' " \
       "-skipPackagePluginValidation " \
       "clean build | xcpretty"
+    )
+  end
+
+  desc "단위 테스트 (M_GAME-UnitTests 스킴). 통합 테스트는 포함하지 않는다."
+  desc "시뮬레이터는 TEST_DESTINATION으로 바꿀 수 있다. 기본값은 ci lane과 같은 iPhone 16."
+  lane :test do
+    destination = ENV.fetch("TEST_DESTINATION", "platform=iOS Simulator,name=iPhone 16")
+    sh("cd .. && tuist install")
+    sh("cd .. && tuist generate --no-open")
+    sh(
+      "cd .. && xcodebuild " \
+      "-workspace M_GAME.xcworkspace " \
+      "-scheme M_GAME-UnitTests " \
+      "-destination '#{destination}' " \
+      "-skipPackagePluginValidation " \
+      "test"
     )
   end
 

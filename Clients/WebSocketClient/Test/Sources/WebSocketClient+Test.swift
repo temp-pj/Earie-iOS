@@ -14,7 +14,7 @@ public extension WebSocketClient {
     } send: { _ in
         
     } receive: {
-        AsyncStream<String> { $0.finish() }
+        AsyncStream<WebSocketEvent> { $0.finish() }
     } disconnect: {
         
     }
