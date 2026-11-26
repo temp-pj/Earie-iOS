@@ -1,5 +1,18 @@
 import ProjectDescription
 
+/// 서버 계약 fixture. 복사하지 않고 명세 폴더를 테스트 리소스로 직접 참조한다 (tasks.md 10번).
+let contractFixtures: ResourceFileElements = ["docs/specs/random-matchmaking/fixtures/*.json"]
+
+/// `bundle exec fastlane test`가 실행하는 단위 테스트 타깃. 통합 테스트(SessionIntegrationTests)는 넣지 않는다.
+let unitTestTargets: [TestableTarget] = [
+    "ModelsTests",
+    "ClientSessionTests",
+    "ClientCatalogTests",
+    "FeatureLobbyTests",
+    "FeatureRoomTest",
+    "M_GAMETests",
+]
+
 let project = Project(
     name: "M_GAME",
     targets: [
@@ -9,7 +22,129 @@ let project = Project(
                 bundleId: "io.tuist.MGAME.Models",
                 sources: ["Models/Sources/**"]
                ),
-        
+
+            .target(name: "ModelsTests",
+                    destinations: .iOS,
+                    product: .unitTests,
+                    bundleId: "io.tuist.MGAME.ModelsTests",
+                    sources: ["Models/Tests/**"],
+                    resources: contractFixtures,
+                    dependencies: [
+                        .target(name: "Models")
+                    ]
+                   ),
+
+            .target(name: "ClientSession",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientSession",
+                    sources: ["Clients/SessionClient/Interface/Sources/**"],
+                    dependencies: [
+                        .target(name: "Models"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+
+            .target(name: "ClientSessionLive",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientSessionLive",
+                    sources: ["Clients/SessionClient/Live/Sources/**"],
+                    dependencies: [
+                        .target(name: "ClientSession"),
+                        .target(name: "ClientWebSocket"),
+                        .target(name: "Models"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+
+            .target(name: "ClientSessionTest",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientSessionTest",
+                    sources: ["Clients/SessionClient/Test/Sources/**"],
+                    dependencies: [
+                        .target(name: "ClientSession"),
+                        .target(name: "Models"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+
+            .target(name: "ClientSessionTests",
+                    destinations: .iOS,
+                    product: .unitTests,
+                    bundleId: "io.tuist.MGAME.ClientSessionTests",
+                    sources: ["Clients/SessionClient/Tests/**"],
+                    resources: contractFixtures,
+                    dependencies: [
+                        .target(name: "ClientSessionLive"),
+                        .target(name: "ClientSession"),
+                        .target(name: "ClientWebSocket"),
+                        .target(name: "Models")
+                    ]
+                   ),
+
+            .target(name: "ClientCatalog",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientCatalog",
+                    sources: ["Clients/CatalogClient/Interface/Sources/**"],
+                    dependencies: [
+                        .target(name: "Models"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+
+            .target(name: "ClientCatalogLive",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientCatalogLive",
+                    sources: ["Clients/CatalogClient/Live/Sources/**"],
+                    dependencies: [
+                        .target(name: "ClientCatalog"),
+                        .target(name: "Models"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+
+            .target(name: "ClientCatalogTest",
+                    destinations: .iOS,
+                    product: .staticFramework,
+                    bundleId: "io.tuist.MGAME.ClientCatalogTest",
+                    sources: ["Clients/CatalogClient/Test/Sources/**"],
+                    dependencies: [
+                        .target(name: "ClientCatalog"),
+                        .target(name: "Models"),
+                        .external(name: "ComposableArchitecture")
+                    ]
+                   ),
+
+            .target(name: "ClientCatalogTests",
+                    destinations: .iOS,
+                    product: .unitTests,
+                    bundleId: "io.tuist.MGAME.ClientCatalogTests",
+                    sources: ["Clients/CatalogClient/Tests/**"],
+                    resources: contractFixtures,
+                    dependencies: [
+                        .target(name: "ClientCatalogLive"),
+                        .target(name: "ClientCatalog"),
+                        .target(name: "Models")
+                    ]
+                   ),
+
+            .target(name: "SessionIntegrationTests",
+                    destinations: .iOS,
+                    product: .unitTests,
+                    bundleId: "io.tuist.MGAME.SessionIntegrationTests",
+                    sources: ["IntegrationTests/**"],
+                    resources: contractFixtures,
+                    dependencies: [
+                        .target(name: "ClientSessionLive"),
+                        .target(name: "ClientSession"),
+                        .target(name: "Models")
+                    ]
+                   ),
+
             .target(name: "ClientAuth",
                     destinations: .iOS,
                     product: .staticFramework,
@@ -254,10 +389,24 @@ let project = Project(
                 .target(name: "Models"),
                 .target(name: "ClientAuth"),
                 .target(name: "ClientRoom"),
+                .target(name: "ClientCatalog"),
                 .external(name: "ComposableArchitecture")
             ]
         ),
-        
+
+            .target(name: "FeatureLobbyTests",
+                    destinations: .iOS,
+                    product: .unitTests,
+                    bundleId: "io.tuist.MGAME.FeatureLobbyTests",
+                    sources: ["Features/Lobby/Tests/**"],
+                    resources: contractFixtures,
+                    dependencies: [
+                        .target(name: "FeatureLobby"),
+                        .target(name: "ClientCatalogTest"),
+                        .target(name: "Models")
+                    ]
+                   ),
+
             .target(
                 name: "FeatureRoom",
                 destinations: .iOS,
@@ -325,6 +474,10 @@ let project = Project(
                     .target(name: "ClientMusicEntitlementLive"),
                     .target(name: "ClientRoomSessionLive"),
                     .target(name: "ClientWebSocketLive"),
+                    .target(name: "ClientSession"),
+                    .target(name: "ClientSessionLive"),
+                    .target(name: "ClientCatalog"),
+                    .target(name: "ClientCatalogLive"),
                     .external(name: "ComposableArchitecture")
                 ],
                 settings: .settings(
@@ -334,5 +487,28 @@ let project = Project(
                     ]
                     )
             ),
+
+            .target(name: "M_GAMETests",
+                    destinations: .iOS,
+                    product: .unitTests,
+                    bundleId: "io.tuist.MGAME.M-GAMETests",
+                    sources: ["M_GAME/Tests/**"],
+                    resources: contractFixtures,
+                    dependencies: [
+                        .target(name: "M_GAME"),
+                        .target(name: "ClientSessionTest"),
+                        .target(name: "ClientCatalogTest"),
+                        .target(name: "ClientAudioTest"),
+                        .target(name: "ClientMusicEntitlementTest")
+                    ]
+                   ),
+    ],
+    schemes: [
+        .scheme(
+            name: "M_GAME-UnitTests",
+            shared: true,
+            buildAction: .buildAction(targets: unitTestTargets.map(\.target)),
+            testAction: .targets(unitTestTargets)
+        ),
     ]
 )
