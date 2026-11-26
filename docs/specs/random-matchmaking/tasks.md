@@ -65,7 +65,7 @@ flowchart TD
   - `Models`: `MatchCategory`, `CatalogProjection`, `CatalogGenre`, `PoolProjection`, `ClientMessage`, `ServerMessage`와 v1 payload DTO, `RoomServerEvent`, `MessageCodec`
   - `ClientSession` Interface(`SessionClient`, `SessionEvent`, `SessionCloseReason`)와 `ClientSessionTest`
   - `ClientCatalog` Interface와 `ClientCatalogTest`
-  - Project.swift: 신규 타깃 `ClientSession`, `ClientSessionLive`, `ClientSessionTest`, `ClientCatalog`, `ClientCatalogLive`, `ClientCatalogTest`, `ModelsTests`, `FeatureLobbyTests`, `M_GAMETests`, `SessionIntegrationTests`와 각 placeholder 소스. `FeatureLobby`, `FeatureRoom`, `M_GAME`에 새 의존성 추가 (기존 의존성은 지우지 않는다)
+  - Project.swift: 신규 타깃 `ClientSession`, `ClientSessionLive`, `ClientSessionTest`, `ClientCatalog`, `ClientCatalogLive`, `ClientCatalogTest`, `ClientSessionTests`, `ClientCatalogTests`, `ModelsTests`, `FeatureLobbyTests`, `M_GAMETests`, `SessionIntegrationTests`와 각 placeholder 소스. `FeatureLobby`, `FeatureRoom`, `M_GAME`에 새 의존성 추가 (기존 의존성은 지우지 않는다)
   - fastlane `test` lane과 CI 테스트 단계
 - T1은 구 타입과 구 모듈을 지우지 않는다. 앱은 T1 이후에도 구 경로로 빌드되어야 한다.
 - 병렬 작업 중 공유 계약을 바꿔야 할 때: 그 작업을 멈추고 필요한 변경과 영향을 보고한다. 변경은 T1 후속 PR로 먼저 병합한 뒤 각 작업이 반영한다. 각 작업이 공유 타입을 따로 고치지 않는다.
