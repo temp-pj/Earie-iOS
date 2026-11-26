@@ -57,6 +57,7 @@ extension WireV1.WelcomePayload: WireValidatable {
         try require(players.contains(hostID), "hostID")
         try require(roomState == "waiting", "roomState")
         try require(maxPlayers == 8, "maxPlayers")
+        try require(players.count <= maxPlayers, "players")
         try require(WireRules.isResolvedCategory(category), "category")
         try require(WireRules.isCatalogVersion(catalogVersion), "catalogVersion")
     }

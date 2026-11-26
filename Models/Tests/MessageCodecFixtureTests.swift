@@ -117,6 +117,19 @@ final class MessageCodecFixtureTests: XCTestCase {
         )))
     }
 
+    func test_WELCOME_참가자는_maxPlayers를_넘을_수_없다() throws {
+        let selfID = "33333333-3333-4333-8333-333333333333"
+        let others = (1...8).map { String(format: "%08x-0000-4000-8000-000000000000", $0) }
+
+        let full = try welcome(replacing: "players", with: [selfID] + others.prefix(7))
+        XCTAssertNoThrow(try MessageCodec.decodeServer(full), "8명은 허용")
+
+        let overflow = try welcome(replacing: "players", with: [selfID] + others)
+        XCTAssertThrowsError(try MessageCodec.decodeServer(overflow)) { error in
+            XCTAssertEqual(error as? MessageCodecError, .invalidField("players"))
+        }
+    }
+
     func test_승자가_없는_결과는_빈_문자열로_디코딩한다() throws {
         let fixture = try XCTUnwrap(try ContractFixtures.validCases().first { $0.name == "game-over-no-winner" })
         let decoded = try MessageCodec.decodeServer(try JSONSerialization.data(withJSONObject: fixture.message))
