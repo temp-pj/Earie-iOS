@@ -176,7 +176,8 @@ flowchart TD
 
 - Earie-ws 저장소는 읽기만 한다 (S1 제외).
 - `protocol.md`, `fixtures/`, `SOURCE.md`는 서버 계약의 읽기 전용 사본이다. 어떤 작업도 고치지 않는다. 계약과 맞지 않는 부분을 발견하면 멈추고 보고한다.
-- `ModelsTests`는 `docs/specs/random-matchmaking/fixtures/`를 테스트 리소스로 직접 참조한다. 다른 곳에 다시 복사하지 않는다. 앱 번들의 `catalog-projection.json`만 예외로 복사한다.
+- `ModelsTests`, `ClientSessionTests`, `ClientCatalogTests`, `SessionIntegrationTests`, `FeatureLobbyTests`, `M_GAMETests`는 `docs/specs/random-matchmaking/fixtures/`를 테스트 리소스로 직접 참조한다. 다른 곳에 다시 복사하지 않는다. 앱 번들의 `catalog-projection.json`만 예외로 복사한다.
+  - 근거: Project.swift를 수정할 수 없는 이후 작업(T4, T6 등)의 테스트도 fixture를 읽을 수 있게 하기 위해
 - requirements나 design의 OPEN 항목에 걸리는 부분은 임의로 채우지 않는다. 2번 표의 확정 조건이 충족되지 않은 작업은 시작하지 않는다.
 
 ## 11. 미결정
