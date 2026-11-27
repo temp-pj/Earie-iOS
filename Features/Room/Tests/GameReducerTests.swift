@@ -8,7 +8,6 @@
 @testable import FeatureRoom
 
 import ComposableArchitecture
-import ClientRoomSessionTest
 import Foundation
 import Models
 import XCTest

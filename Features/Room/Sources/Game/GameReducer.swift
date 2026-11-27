@@ -26,6 +26,7 @@ public struct GameReducer {
         case delegate(Delegate)
         case serverEvent(GameEvent)
         
+        @CasePathable
         public enum Delegate {
             case playMusic
             case stopMusic
@@ -33,7 +34,9 @@ public struct GameReducer {
         }
     }
     
-    enum CancelID {
+    /// Game이 직접 시작하는 효과
+    public enum CancelID: Hashable, Sendable {
+        /// 오답 페널티 500ms 타이머
         case penaltyTimer
     }
     

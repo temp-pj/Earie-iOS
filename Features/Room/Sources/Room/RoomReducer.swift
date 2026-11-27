@@ -6,152 +6,293 @@
 //
 
 import ClientAudio
-import ClientRoomSession
 import ComposableArchitecture
 import Foundation
 import Models
+import OSLog
 
+/// 방 대기, 나가는 중, 게임, 결과를 맡는다 (design 3, 5, 6).
+///
+/// 연결과 송신, 메시지 거르기는 하지 않는다. App이 거르기를 통과한 이벤트를 `.server`로 넣고,
+/// 서버로 보낼 메시지는 `.delegate(.send)`로 App에 넘긴다. ROOM_LEFT와 PLAYER_KICKED는 App이 직접 처리한다.
 @Reducer
 public struct RoomReducer {
-    public typealias PlayerID = UUID
-    public typealias RoomID = String
-    
     public init() { }
-    
+
     @ObservableState
     public struct State: Equatable {
-        public var roomID: RoomID
-        public var hostID: PlayerID
-        public var timeLimit: Int = 30
-        public var players: [PlayerID: Player]
-        public var maxPlayers: Int = 8
-        public var roomState: RoomSessionState = .waiting
-        public var gameState: GameReducer.State?
-        public var gameResult: GameResult?
-        public var serverConnectionState: ServerConnectionState = .disconnected(.normal)
-        
-        public init(roomID: RoomID, hostID: PlayerID, players: [PlayerID: Player], roomState: RoomSessionState = .waiting, gameState: GameReducer.State? = nil, gameResult: GameResult? = nil) {
+        public var roomID: String
+        public var myPlayerID: String
+        public var hostID: String
+        /// 서버 접수 순서 (REQ-ROOM-01)
+        public var players: [String]
+        public var maxPlayers: Int
+        /// 확정된 방 조건
+        public var category: MatchCategory
+        public var stage: Stage
+        public var isLeaving: Bool
+        public var game: GameReducer.State?
+        /// 명령 실패 알럿과 게임 중 나가기 확인창
+        @Presents public var alert: AlertState<Action.Alert>?
+
+        public init(
+            roomID: String,
+            myPlayerID: String,
+            hostID: String,
+            players: [String],
+            maxPlayers: Int,
+            category: MatchCategory,
+            stage: Stage = .waiting,
+            isLeaving: Bool = false,
+            game: GameReducer.State? = nil,
+            alert: AlertState<Action.Alert>? = nil
+        ) {
             self.roomID = roomID
+            self.myPlayerID = myPlayerID
             self.hostID = hostID
             self.players = players
-            self.roomState = roomState
-            self.gameState = gameState
-            self.gameResult = gameResult
+            self.maxPlayers = maxPlayers
+            self.category = category
+            self.stage = stage
+            self.isLeaving = isLeaving
+            self.game = game
+            self.alert = alert
+        }
+
+        /// 활성 요청의 WELCOME으로 방을 만든다 (REQ-MATCH-07). WELCOME의 형식 검증은 `MessageCodec`이 이미 했다.
+        public init(welcome: WireV1.WelcomePayload) {
+            self.init(
+                roomID: welcome.roomID,
+                myPlayerID: welcome.playerID,
+                hostID: welcome.hostID,
+                players: welcome.players,
+                maxPlayers: welcome.maxPlayers,
+                category: welcome.category
+            )
+        }
+
+        public var isHost: Bool { hostID == myPlayerID }
+
+        /// REQ-ROOM-03: 내가 방장이고, 2명 이상이고, 대기 상태이고, 나가는 중이 아닐 때만
+        public var canStart: Bool {
+            isHost && players.count >= 2 && stage == .waiting && !isLeaving
+        }
+
+        /// REQ-ROOM-06: 나가는 중에는 나가기를 다시 보내지 않는다
+        public var canLeave: Bool { !isLeaving }
+
+        /// GAME_OVER의 승자. 빈 문자열이면 승자 없음 (REQ-GAME-04)
+        public var winnerID: String? {
+            guard case .finished(let result) = stage, !result.winner.isEmpty else { return nil }
+            return result.winner
+        }
+
+        /// 결과 화면의 점수. 서버 참가자 순서를 따르고, 목록에 없는 플레이어는 뒤에 ID 순으로 붙인다.
+        public var scoreboard: [Score] {
+            guard case .finished(let result) = stage else { return [] }
+            let ordered = players.filter { result.scores[$0] != nil }
+            let others = result.scores.keys.filter { !players.contains($0) }.sorted()
+            return (ordered + others).compactMap { playerID in
+                result.scores[playerID].map { Score(playerID: playerID, score: $0) }
+            }
+        }
+
+        /// GAME_ABORTED 사유별 문구 (REQ-GAME-05)
+        public var abortMessage: String? {
+            guard case .aborted(let reason) = stage else { return nil }
+            return RoomCopy.abortMessage(reason)
         }
     }
-    
+
+    public enum Stage: Equatable, Sendable {
+        case waiting
+        case playing
+        case finished(GameResult)
+        case aborted(AbortReason)
+    }
+
+    public struct Score: Equatable, Sendable, Identifiable {
+        public let playerID: String
+        public let score: Int
+        public var id: String { playerID }
+    }
+
     public enum Action {
-        case onAppear
-        case toServer(RoomRequest)
-        case receive(RoomEvent)
+        /// App이 거르기를 통과시킨 현재 방의 이벤트
+        case server(RoomServerEvent)
+        case startTapped
+        case leaveTapped
+        case preloadFailed(roundNumber: Int)
         case game(GameReducer.Action)
-        case onDisappear
+        case alert(PresentationAction<Alert>)
+        case delegate(Delegate)
+
+        @CasePathable
+        public enum Alert: Equatable, Sendable {
+            case confirmLeave
+        }
+
+        @CasePathable
+        public enum Delegate: Equatable, Sendable {
+            /// App이 현재 연결로 보낸다
+            case send(ClientMessage)
+        }
     }
-    
-    public enum CancelID {
-        case roomEvents
+
+    /// Room이 직접 시작하는 효과. Game의 효과는 `GameReducer.CancelID`.
+    public enum CancelID: Hashable, Sendable {
+        /// PRELOAD_SONG 곡 준비와 그 뒤의 READY_TO_PLAY
+        case preload
     }
-    
-    @Dependency(\.roomSessionClient) var roomSession
+
+    /// 곡 준비 제한 시간 (design 8)
+    static let preloadTimeLimit: TimeInterval = 30
+
     @Dependency(\.audioClient) var audioClient
-    
+
     public var body: some ReducerOf<Self> {
         Reduce { state, action in
             switch action {
-                case .onAppear:
-                    return .run { send in
-                        for await roomEvent in roomSession.roomEvents() {
-                            await send(.receive(roomEvent))
-                        }
-                    }
-                    .cancellable(id: CancelID.roomEvents, cancelInFlight: true)
-                    
-                case .toServer(let request):
-                    return .run { _ in
-                        try await roomSession.send(request)
-                    }
-                    
-                case .receive(let event):
-                    switch event {
-                        case .gameStarted:
-                            state.roomState = .playing
-                            state.gameState = GameReducer.State()
-                            return .none
-                            
-                        case .playerJoined(let joinedPlayer):
-                            state.players[joinedPlayer.id] = joinedPlayer
-                            return .none
-                            
-                        case .playerLeft(let leftPlayer):
-                            state.players[leftPlayer.id] = nil
-                            return .none
-                            
-                        case .hostChanged(let newHost):
-                            state.hostID = newHost.id
-                            return .none
-                            
-                        case .serverConnectionChanged(let connectionState):
-                            state.serverConnectionState = connectionState
-                            
-                            if case .connected(let roomConnectionInfo) = connectionState {
-                                state.roomID = roomConnectionInfo.roomID
-                                state.hostID = UUID(uuidString: roomConnectionInfo.hostID)!
-                                state.roomState = RoomSessionState(rawValue: roomConnectionInfo.roomState) ?? .waiting
-                                state.players = roomConnectionInfo.players.reduce(into: [:]) { dict, player in
-                                    dict[player.id] = player
-                                }
-                                state.maxPlayers = roomConnectionInfo.maxPlayers
-                                                                
-                            }
-                            
-                            return .none
-                            
-                        case .kicked:
-                            return .none
-                            
-                        case .preloadSong(let isrc, let startTime, let roundNumber):
-                            let timeLimit = TimeInterval(state.timeLimit)
-                            
-                            return .run { send in
-                                try await audioClient.preload(isrc, TimeInterval(startTime), timeLimit)
-                                await send(.toServer(.readyToPlay(roundNumber)))
-                            }
-                    
-                        case .game(let event):
-                            return .send(.game(.serverEvent(event)))
-                            
-                        case .gameFinished(let result):
-                            state.roomState = .result
-                            state.gameResult = result
-                            state.gameState = nil
-                            
-                            return .none
-                    }
-                    
-                case .game(.delegate(.submitAnswer(let answer))):
-                    return .send(.toServer(.game(.submitAnswer(answer))))
-                    
-                case .game(.delegate(.playMusic)):
-                    return .run { _ in
-                        try await audioClient.play()
-                    }
-                
-                case .game(.delegate(.stopMusic)):
-                    return .run { _ in
-                        try await audioClient.stop()
-                    }
-                    
-                case .onDisappear:
-                    return .merge(
-                        .cancel(id: CancelID.roomEvents),
-                        .run { _ in
-                            try await roomSession.disconnect()
-                        }
-                    )
-                        
-                case .game: return .none
+            case .server(let event):
+                return handle(event, state: &state)
+
+            case .startTapped:
+                guard state.canStart else { return .none }
+                return .send(.delegate(.send(.startGame(roomID: state.roomID))))
+
+            case .leaveTapped:
+                guard state.canLeave else { return .none }
+                if state.stage == .playing {
+                    state.alert = RoomCopy.confirmLeaveAlert
+                    return .none
+                }
+                return leave(&state)
+
+            case .alert(.presented(.confirmLeave)):
+                guard state.canLeave else { return .none }
+                return leave(&state)
+
+            case .alert:
+                return .none
+
+            case .preloadFailed(let roundNumber):
+                // REQ-GAME-02: READY_TO_PLAY를 보내지 않고 서버의 GAME_ABORTED를 기다린다
+                Self.logger.error("곡 준비 실패, READY_TO_PLAY 보내지 않음 (round \(roundNumber))")
+                return .none
+
+            case .game(.delegate(.submitAnswer(let answer))):
+                return .send(.delegate(.send(.submitAnswer(roomID: state.roomID, answer: answer))))
+
+            case .game(.delegate(.playMusic)):
+                return .run { _ in try await audioClient.play() }
+
+            case .game(.delegate(.stopMusic)):
+                return stopMusic()
+
+            case .game:
+                return .none
+
+            case .delegate:
+                return .none
             }
         }
-        .ifLet(\.gameState, action: \.game) { GameReducer() }
+        .ifLet(\.game, action: \.game) { GameReducer() }
+        .ifLet(\.$alert, action: \.alert)
     }
+
+    private func handle(_ event: RoomServerEvent, state: inout State) -> Effect<Action> {
+        switch event {
+        case .playerJoined(let playerID):
+            if !state.players.contains(playerID) {
+                state.players.append(playerID)
+            }
+            return .none
+
+        case .playerLeft(let playerID):
+            state.players.removeAll { $0 == playerID }
+            return .none
+
+        case .hostChanged(let playerID):
+            state.hostID = playerID
+            return .none
+
+        case .commandFailed(let code):
+            state.alert = RoomCopy.commandFailedAlert(code)
+            return .none
+
+        case .gameStarted, .preloadSong, .game, .gameOver, .gameAborted:
+            return handleGame(event, state: &state)
+        }
+    }
+
+    private func handleGame(_ event: RoomServerEvent, state: inout State) -> Effect<Action> {
+        switch event {
+        case .gameStarted:
+            // 게임·결과 중의 GAME_STARTED는 무시 (requirements 8). 나가는 중이면 그 상태를 유지한다 (EDGE-13)
+            guard state.stage == .waiting else { return .none }
+            state.stage = .playing
+            state.game = GameReducer.State()
+            return .none
+
+        case .preloadSong(let isrc, let startTime, let roundNumber):
+            guard state.stage == .playing else { return .none }
+            return preload(isrc: isrc, startTime: startTime, roundNumber: roundNumber, roomID: state.roomID)
+
+        case .game(let gameEvent):
+            guard state.stage == .playing, state.game != nil else { return .none }
+            return .send(.game(.serverEvent(gameEvent)))
+
+        case .gameOver(let result):
+            return endGame(.finished(result), state: &state)
+
+        case .gameAborted(let reason):
+            return endGame(.aborted(reason), state: &state)
+
+        case .playerJoined, .playerLeft, .hostChanged, .commandFailed:
+            return .none
+        }
+    }
+
+    /// REQ-GAME-02: 준비가 끝나면 READY_TO_PLAY, 실패하면 보내지 않는다
+    private func preload(isrc: String, startTime: Int, roundNumber: Int, roomID: String) -> Effect<Action> {
+        .run { send in
+            do {
+                try await audioClient.preload(isrc, TimeInterval(startTime), Self.preloadTimeLimit)
+            } catch is CancellationError {
+                return
+            } catch {
+                await send(.preloadFailed(roundNumber: roundNumber))
+                return
+            }
+            await send(.delegate(.send(.readyToPlay(roomID: roomID, roundNumber: roundNumber))))
+        }
+        .cancellable(id: CancelID.preload, cancelInFlight: true)
+    }
+
+    /// GAME_OVER, GAME_ABORTED: 게임 중일 때만 결과로 바꾼다. 게임 상태를 버리고(페널티 타이머 취소)
+    /// 곡 준비를 취소하고 음악을 멈춘다 (design 12). 결과 화면에서 다시 오면 무시한다 (requirements 8).
+    private func endGame(_ result: Stage, state: inout State) -> Effect<Action> {
+        guard state.stage == .playing else { return .none }
+        state.stage = result
+        state.game = nil
+        return .merge(.cancel(id: CancelID.preload), stopMusic())
+    }
+
+    /// REQ-ROOM-05: LEAVE_ROOM을 보내고 나가는 중이 된다. 화면 전환은 App이 ROOM_LEFT로 한다.
+    private func leave(_ state: inout State) -> Effect<Action> {
+        state.isLeaving = true
+        return .send(.delegate(.send(.leaveRoom(roomID: state.roomID))))
+    }
+
+    private func stopMusic() -> Effect<Action> {
+        .run { _ in
+            do {
+                try await audioClient.stop()
+            } catch {
+                Self.logger.error("음악 정지 실패: \(String(describing: error))")
+            }
+        }
+    }
+
+    private static let logger = Logger(subsystem: "M_GAME", category: "FeatureRoom")
 }

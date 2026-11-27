@@ -8,408 +8,520 @@
 @testable import FeatureRoom
 
 import ComposableArchitecture
-import ClientRoomSessionTest
 import Foundation
 import Models
 import XCTest
 
 // swiftlint:disable file_length
+@MainActor
 final class RoomReducerTests: XCTestCase {
+    // MARK: - WELCOME으로 만든 상태 (REQ-MATCH-07, REQ-ROOM-01)
+
+    func test_WELCOME으로_방_상태를_만든다() {
+        let welcome = WireV1.WelcomePayload.fixture(hostID: TestID.other, players: [TestID.other, TestID.myself])
+
+        let state = RoomReducer.State(welcome: welcome)
+
+        XCTAssertEqual(state.roomID, TestID.room)
+        XCTAssertEqual(state.myPlayerID, TestID.myself)
+        XCTAssertEqual(state.hostID, TestID.other)
+        XCTAssertEqual(state.players, [TestID.other, TestID.myself])
+        XCTAssertEqual(state.maxPlayers, 8)
+        XCTAssertEqual(state.category, .roomFixture)
+        XCTAssertEqual(state.stage, .waiting)
+        XCTAssertFalse(state.isLeaving)
+        XCTAssertNil(state.game)
+        XCTAssertNil(state.alert)
+        XCTAssertFalse(state.isHost)
+    }
+
+    // MARK: - 참가자·방장 갱신 (REQ-ROOM-02, EDGE-06)
+
+    func test_PLAYER_JOINED는_서버_순서대로_뒤에_붙는다() async {
+        let store = makeStore()
+
+        await store.send(.server(.playerJoined(playerID: TestID.third))) {
+            $0.players = [TestID.myself, TestID.other, TestID.third]
+        }
+        // 이미 있는 참가자는 다시 넣지 않는다
+        await store.send(.server(.playerJoined(playerID: TestID.other)))
+    }
+
+    func test_PLAYER_LEFT는_목록에서_뺀다() async {
+        let store = makeStore(RoomReducer.State(welcome: .fixture(players: [TestID.myself, TestID.other, TestID.third])))
+
+        await store.send(.server(.playerLeft(playerID: TestID.other))) {
+            $0.players = [TestID.myself, TestID.third]
+        }
+        // 없는 참가자는 변화 없음
+        await store.send(.server(.playerLeft(playerID: TestID.other)))
+    }
+
+    func test_HOST_CHANGED는_방장을_바꾼다() async {
+        let store = makeStore()
+
+        await store.send(.server(.hostChanged(playerID: TestID.other))) {
+            $0.hostID = TestID.other
+        }
+        XCTAssertFalse(store.state.isHost)
+    }
+
+    // MARK: - 시작 버튼 판정 (REQ-ROOM-03, EDGE-09, EDGE-10)
+
+    func test_방장이고_2명_이상_대기_중이면_시작할_수_있다() async {
+        let store = makeStore()
+        XCTAssertTrue(store.state.canStart)
+
+        await store.send(.startTapped)
+        await store.receive(\.delegate.send, .startGame(roomID: TestID.room))
+    }
+
+    func test_방장_혼자면_시작할_수_없다() async {
+        let store = makeStore(RoomReducer.State(welcome: .fixture(players: [TestID.myself])))
+        XCTAssertFalse(store.state.canStart)
+
+        await store.send(.startTapped)
+    }
+
+    func test_방장이_아니면_시작할_수_없다() async {
+        let store = makeStore(RoomReducer.State(welcome: .fixture(hostID: TestID.other)))
+        XCTAssertFalse(store.state.canStart)
+
+        await store.send(.startTapped)
+    }
+
+    func test_나가는_중이거나_대기_상태가_아니면_시작할_수_없다() {
+        var leaving = RoomReducer.State(welcome: .fixture())
+        leaving.isLeaving = true
+        XCTAssertFalse(leaving.canStart)
+
+        XCTAssertFalse(playingState().canStart)
+
+        var finished = RoomReducer.State(welcome: .fixture())
+        finished.stage = .finished(GameResult(winner: "", scores: [:]))
+        XCTAssertFalse(finished.canStart)
+
+        var aborted = RoomReducer.State(welcome: .fixture())
+        aborted.stage = .aborted(.internalError)
+        XCTAssertFalse(aborted.canStart)
+    }
+
+    func test_혼자_남으면_시작_비활성_방에는_머문다() async {
+        let store = makeStore()
+
+        await store.send(.server(.playerLeft(playerID: TestID.other))) {
+            $0.players = [TestID.myself]
+        }
+        XCTAssertFalse(store.state.canStart)
+        XCTAssertEqual(store.state.stage, .waiting)
+    }
+
+    func test_방장이_나가서_내가_방장이_되면_시작할_수_있다() async {
+        let store = makeStore(RoomReducer.State(welcome: .fixture(hostID: TestID.other, players: [TestID.other, TestID.myself, TestID.third])))
+        XCTAssertFalse(store.state.canStart)
+
+        await store.send(.server(.playerLeft(playerID: TestID.other))) {
+            $0.players = [TestID.myself, TestID.third]
+        }
+        await store.send(.server(.hostChanged(playerID: TestID.myself))) {
+            $0.hostID = TestID.myself
+        }
+        XCTAssertTrue(store.state.isHost)
+        XCTAssertTrue(store.state.canStart)
+    }
+
+    // MARK: - 나가기와 나가는 중 (REQ-ROOM-05, 06, 08)
+
+    func test_방_대기의_나가기는_확인창_없이_LEAVE_ROOM() async {
+        let store = makeStore()
+
+        await store.send(.leaveTapped) {
+            $0.isLeaving = true
+        }
+        await store.receive(\.delegate.send, .leaveRoom(roomID: TestID.room))
+        XCTAssertFalse(store.state.canStart)
+        XCTAssertFalse(store.state.canLeave)
+    }
+
+    func test_나가는_중에는_나가기와_시작을_다시_보내지_않고_방_이벤트는_반영한다() async {
+        var state = RoomReducer.State(welcome: .fixture())
+        state.isLeaving = true
+        let store = makeStore(state)
+
+        await store.send(.leaveTapped)
+        await store.send(.startTapped)
+
+        await store.send(.server(.playerJoined(playerID: TestID.third))) {
+            $0.players = [TestID.myself, TestID.other, TestID.third]
+        }
+        await store.send(.server(.hostChanged(playerID: TestID.other))) {
+            $0.hostID = TestID.other
+        }
+    }
+
+    func test_나가는_중에_GAME_STARTED가_오면_게임으로_바뀌고_나가는_중을_유지한다() async {
+        var state = RoomReducer.State(welcome: .fixture())
+        state.isLeaving = true
+        let audio = AudioRecorder()
+        let store = makeStore(state, audio: audio)
+
+        await store.send(.server(.gameStarted)) {
+            $0.stage = .playing
+            $0.game = GameReducer.State()
+        }
+        XCTAssertTrue(store.state.isLeaving)
+
+        // 나가는 중 게임 화면의 나가기도 다시 보내지 않는다 (확인창도 없음)
+        await store.send(.leaveTapped)
+
+        let result = GameResult(winner: TestID.myself, scores: [TestID.myself: 1])
+        await store.send(.server(.gameOver(result))) {
+            $0.stage = .finished(result)
+            $0.game = nil
+        }
+        XCTAssertTrue(store.state.isLeaving)
+        await store.finish()
+        XCTAssertEqual(audio.stopCount.value, 1)
+    }
+
+    func test_게임_중_나가기는_확인창을_띄우고_확인하면_LEAVE_ROOM() async {
+        let store = makeStore(playingState())
+
+        await store.send(.leaveTapped) {
+            $0.alert = RoomCopy.confirmLeaveAlert
+        }
+        XCTAssertEqual(store.state.alert?.title, TextState("게임에서 나갈까요?"))
+
+        await store.send(.alert(.presented(.confirmLeave))) {
+            $0.alert = nil
+            $0.isLeaving = true
+        }
+        await store.receive(\.delegate.send, .leaveRoom(roomID: TestID.room))
+        XCTAssertEqual(store.state.stage, .playing)
+    }
+
+    func test_게임_중_나가기_확인창에서_취소하면_아무것도_보내지_않는다() async {
+        let store = makeStore(playingState())
+
+        await store.send(.leaveTapped) {
+            $0.alert = RoomCopy.confirmLeaveAlert
+        }
+        await store.send(.alert(.dismiss)) {
+            $0.alert = nil
+        }
+        XCTAssertFalse(store.state.isLeaving)
+    }
+
+    func test_결과_화면의_나가기는_확인창_없이_LEAVE_ROOM() async {
+        for stage in [RoomReducer.Stage.finished(GameResult(winner: "", scores: [:])), .aborted(.insufficientPlayers)] {
+            var state = RoomReducer.State(welcome: .fixture())
+            state.stage = stage
+            let store = makeStore(state)
+
+            await store.send(.leaveTapped) {
+                $0.isLeaving = true
+            }
+            await store.receive(\.delegate.send, .leaveRoom(roomID: TestID.room))
+        }
+    }
+
+    // MARK: - ROOM_COMMAND_FAILED (REQ-ROOM-04)
+
+    func test_ROOM_COMMAND_FAILED는_코드별_문구로_알럿을_띄우고_방에_머문다() async {
+        let cases: [(RoomFailureCode, String)] = [
+            (.notHost, "방장만 게임을 시작할 수 있어요."),
+            (.notEnoughPlayers, "2명 이상일 때 시작할 수 있어요."),
+            (.invalidState, "지금은 게임을 시작할 수 없어요."),
+            (.internalError, "게임을 시작하지 못했어요. 다시 시도해 주세요.")
+        ]
+        for (code, message) in cases {
+            let store = makeStore()
+
+            await store.send(.server(.commandFailed(code))) {
+                $0.alert = RoomCopy.commandFailedAlert(code)
+            }
+            XCTAssertEqual(store.state.alert?.title, TextState(message), "\(code)")
+            XCTAssertEqual(store.state.stage, .waiting)
+
+            await store.send(.alert(.dismiss)) {
+                $0.alert = nil
+            }
+        }
+    }
+}
+
+@MainActor
+final class RoomGameTests: XCTestCase {
+    // MARK: - 곡 준비 (REQ-GAME-02, 03, EDGE-12)
+
+    func test_곡_준비가_끝나면_같은_roomID와_roundNumber로_READY_TO_PLAY() async {
+        let audio = AudioRecorder()
+        let store = makeStore(playingState(), audio: audio)
+
+        await store.send(.server(.preloadSong(isrc: "KRA381234567", startTime: 42, roundNumber: 3)))
+        await store.receive(\.delegate.send, .readyToPlay(roomID: TestID.room, roundNumber: 3))
+
+        XCTAssertEqual(audio.preloads.value, [.init(isrc: "KRA381234567", startTime: 42, timeLimit: 30)])
+    }
+
+    func test_곡_준비에_실패하면_READY_TO_PLAY를_보내지_않는다() async {
+        let store = makeStore(playingState(), preloadError: PreloadFailure())
+
+        await store.send(.server(.preloadSong(isrc: "KRA381234567", startTime: 0, roundNumber: 1)))
+        await store.receive(\.preloadFailed, 1)
+        // 서버의 GAME_ABORTED(INTERNAL_ERROR)를 기다린다
+        await store.send(.server(.gameAborted(.internalError))) {
+            $0.stage = .aborted(.internalError)
+            $0.game = nil
+        }
+    }
+
+    func test_게임_중이_아니면_PRELOAD_SONG을_무시한다() async {
+        let audio = AudioRecorder()
+        let store = makeStore(audio: audio)
+
+        await store.send(.server(.preloadSong(isrc: "KRA381234567", startTime: 0, roundNumber: 1)))
+        XCTAssertEqual(audio.preloads.value, [])
+    }
+
+    // MARK: - 게임 한 사이클 (REQ-GAME-01, 03, 04)
+
     func test_게임_한_사이클() async {
         let clock = TestClock()
-        let (stream, continuation) = AsyncStream.makeStream(of: RoomEvent.self)
-        
-        let hostPlayer = Player(id: UUID())
-        
-        let player1 = Player(id: UUID())
-        let player2 = Player(id: UUID())
-        let player3 = Player(id: UUID())
-        
-        var fetchedID: String?
-        var request: RoomRequest?
-        var didPlay = false
-        var didStop = false
-        
-        let store = await TestStore(initialState: RoomReducer.State(roomID: "TEST_ROOM_ID",
-                                                                    hostID: hostPlayer.id,
-                                                                    players: [hostPlayer.id: hostPlayer],
-                                                                    roomState: .waiting),
-                                    reducer: { RoomReducer() }) {
-            $0.audioClient.preload = { id, _, _ in fetchedID = id }
-            $0.audioClient.play = { didPlay = true }
-            $0.audioClient.stop = { didStop = true }
-            $0.roomSessionClient = .mock(send: { request = $0 }, roomEvents: { stream })
-            $0.continuousClock = clock
-            
+        let audio = AudioRecorder()
+        let store = makeStore(audio: audio, clock: clock)
+
+        // 시작
+        await store.send(.startTapped)
+        await store.receive(\.delegate.send, .startGame(roomID: TestID.room))
+        await store.send(.server(.gameStarted)) {
+            $0.stage = .playing
+            $0.game = GameReducer.State()
         }
-        
-        let game = GameReducer.State(selectedLetters: [], roundState: .idle)
-        
-        await store.send(.onAppear)
-        
-        // 선수 입장
-        continuation.yield(.playerJoined(player1))
-        
-        await store.receive(\.receive) {
-            $0.players[player1.id] = player1
-        }
-        
-        continuation.yield(.playerJoined(player2))
-        
-        await store.receive(\.receive) {
-            $0.players[player2.id] = player2
-        }
-        
-        continuation.yield(.playerJoined(player3))
-        
-        await store.receive(\.receive) {
-            $0.players[player3.id] = player3
-        }
-        
-        // 선수 한 명 퇴장
-        continuation.yield(.playerLeft(player1))
-        
-        await store.receive(\.receive) {
-            $0.players[player1.id] = nil
-        }
-        
-        // 게임 시작
-        continuation.yield(.gameStarted)
-        
-        await store.receive(\.receive) {
-            $0.gameState = game
-            $0.roomState = .playing
-        }
-        
-        // preload Song
-        let isrc = "1675478652"
-        continuation.yield(.preloadSong(isrc: isrc, startTime: 0, roundNumber: 30))
-        
-        await store.receive(\.receive)
-        await store.receive(\.toServer) 
-        
+
+        // 곡 준비
+        await store.send(.server(.preloadSong(isrc: "KRA381234567", startTime: 10, roundNumber: 1)))
+        await store.receive(\.delegate.send, .readyToPlay(roomID: TestID.room, roundNumber: 1))
+
         // 라운드 시작
-        let roundData = RoundData.mock(roundNumber: 1, totalRounds: 100, wordCards: ["그", "대", "만", "있", "다", "면", "마", "라", "탕"], answerLength: 6, timeLimit: 3600)
-        
-        continuation.yield(.game(.roundStarted(roundData)))
-        
-        await store.receive(\.receive)
-        await store.receive(\.game) {
-            $0.gameState?.roundState = .playing
-            $0.gameState?.inputState = .enabled
-            $0.gameState?.roundData = roundData
+        let roundData = RoundData(roundNumber: 1, totalRounds: 10, letterCards: ["그", "대", "만", "있", "다", "면"], answerLength: 3)
+        await store.send(.server(.game(.roundStarted(roundData))))
+        await store.receive(\.game.serverEvent) {
+            $0.game?.roundData = roundData
+            $0.game?.roundState = .playing
+            $0.game?.inputState = .enabled
         }
-        await store.receive(\.game)
-        
-        XCTAssertEqual(didPlay, true)
-        
-        // 전송
-        let wrongAnswer = ["마", "라", "탕", "있", "다", "면"]
-        await store.send(.game(.delegate(.submitAnswer(wrongAnswer.joined()))))
-        
-        await store.receive(\.toServer)
-        
-        XCTAssertEqual(request, .game(.submitAnswer(wrongAnswer.joined())))
-        
-        // 오답 패널티
-        continuation.yield(.game(.wrongAnswer(playerID: player1.id.uuidString, wrongAnswer: wrongAnswer.joined())))
-        await store.receive(\.receive)
-        await store.receive(\.game) {
-            $0.gameState?.inputState = .penalized
+        await store.receive(\.game.delegate.playMusic)
+        await store.finish()
+        XCTAssertEqual(audio.playCount.value, 1)
+
+        // 카운트다운
+        await store.send(.server(.game(.countDown(9))))
+        await store.receive(\.game.serverEvent) {
+            $0.game?.remainingTime = 9
         }
-        
-        await clock.advance(by: .milliseconds(500))
-        
-        await store.receive(\.game) {
-            $0.gameState?.selectedLetters = []
-            $0.gameState?.inputState = .enabled
+
+        // 제출 → SUBMIT_ANSWER(roomID)
+        await store.send(.game(.selectLetter(3))) { $0.game?.selectedLetters = ["있"] }
+        await store.send(.game(.selectLetter(4))) { $0.game?.selectedLetters = ["있", "다"] }
+        await store.send(.game(.selectLetter(5))) { $0.game?.selectedLetters = ["있", "다", "면"] }
+        await store.receive(\.game.submit) { $0.game?.inputState = .submitting }
+        await store.receive(\.game.delegate.submitAnswer)
+        await store.receive(\.delegate.send, .submitAnswer(roomID: TestID.room, answer: "있다면"))
+
+        // 오답 페널티 500ms (TestClock)
+        await store.send(.server(.game(.wrongAnswer(playerID: TestID.myself, wrongAnswer: "있다면"))))
+        await store.receive(\.game.serverEvent) { $0.game?.inputState = .penalized }
+        await clock.advance(by: .milliseconds(499))
+        await clock.advance(by: .milliseconds(1))
+        await store.receive(\.game.penaltyFinished) {
+            $0.game?.selectedLetters = []
+            $0.game?.inputState = .enabled
         }
-        
-        // 라운드 종료(정답 or 시간 초과)
-        
-        let roundResult = RoundResult(winnerId: player2.id.uuidString, correctAnswer: "그대만 있다면", scores: [:])
-        
-        continuation.yield(.game(.roundEnded(roundResult)))
-        
-        await store.receive(\.receive)
-        await store.receive(\.game) {
-            $0.gameState?.roundResult = roundResult
-            $0.gameState?.roundState = .result
+
+        // 라운드 결과
+        let roundResult = RoundResult(winnerId: TestID.other, correctAnswer: "그대만", scores: [TestID.other: 1])
+        await store.send(.server(.game(.roundEnded(roundResult))))
+        await store.receive(\.game.serverEvent) {
+            $0.game?.roundState = .result
+            $0.game?.roundResult = roundResult
         }
-        await store.receive(\.game)
-        
-        XCTAssertEqual(didStop, true)
-        
+        await store.receive(\.game.delegate.stopMusic)
+        await store.finish()
+        XCTAssertEqual(audio.stopCount.value, 1)
+
         // 게임 종료
-        let gameResult = GameResult(winner: "WINNER_ID", scores: [:])
-        continuation.yield(.gameFinished(gameResult))
-        
-        await store.receive(\.receive) {
-            $0.roomState = .result
-            $0.gameResult = gameResult
-            $0.gameState = nil
+        let result = GameResult(winner: TestID.other, scores: [TestID.myself: 0, TestID.other: 1])
+        await store.send(.server(.gameOver(result))) {
+            $0.stage = .finished(result)
+            $0.game = nil
         }
-        
-        continuation.finish()
-        await store.send(.onDisappear)
+        await store.finish()
+        XCTAssertEqual(audio.stopCount.value, 2)
+        XCTAssertEqual(store.state.winnerID, TestID.other)
+        XCTAssertEqual(store.state.scoreboard, [
+            .init(playerID: TestID.myself, score: 0),
+            .init(playerID: TestID.other, score: 1)
+        ])
+        XCTAssertNil(store.state.abortMessage)
     }
-    
-    func test_플레이어가_들어오면_목록에_추가() async {
-        
-        let (stream, continuation) = AsyncStream.makeStream(of: RoomEvent.self)
-        
-        let store = await TestStore(initialState: RoomReducer.State(roomID: "TEST_ROOM_ID", hostID: UUID(), players: [:])) {
+
+    // MARK: - GAME_OVER (REQ-GAME-04)
+
+    func test_GAME_OVER_승자가_빈_문자열이면_승자_없음() async {
+        let audio = AudioRecorder()
+        let store = makeStore(playingState(), audio: audio)
+        let result = GameResult(winner: "", scores: [TestID.other: 0, TestID.myself: 0, TestID.third: 2])
+
+        await store.send(.server(.gameOver(result))) {
+            $0.stage = .finished(result)
+            $0.game = nil
+        }
+        XCTAssertNil(store.state.winnerID)
+        await store.finish()
+        XCTAssertEqual(audio.stopCount.value, 1)
+        // 서버 참가자 순서, 이미 나간 참가자는 뒤에
+        XCTAssertEqual(store.state.scoreboard.map(\.playerID), [TestID.myself, TestID.other, TestID.third])
+    }
+
+    func test_결과_화면에서는_GAME_STARTED_GAME_OVER_GAME_ABORTED를_무시한다() async {
+        let first = GameResult(winner: TestID.myself, scores: [TestID.myself: 3])
+        var state = RoomReducer.State(welcome: .fixture())
+        state.stage = .finished(first)
+        let audio = AudioRecorder()
+        let store = makeStore(state, audio: audio)
+
+        await store.send(.server(.gameStarted))
+        await store.send(.server(.gameOver(GameResult(winner: "", scores: [:]))))
+        await store.send(.server(.gameAborted(.internalError)))
+        await store.send(.server(.game(.countDown(3))))
+        await store.finish()
+        XCTAssertEqual(audio.stopCount.value, 0)
+    }
+
+    func test_게임_중의_GAME_STARTED는_무시한다() async {
+        var state = playingState()
+        state.game?.remainingTime = 7
+        let store = makeStore(state)
+
+        await store.send(.server(.gameStarted))
+    }
+
+    // MARK: - GAME_ABORTED (REQ-GAME-05, EDGE-11)
+
+    func test_GAME_ABORTED_INSUFFICIENT_PLAYERS() async {
+        let audio = AudioRecorder()
+        let store = makeStore(playingState(), audio: audio)
+
+        await store.send(.server(.gameAborted(.insufficientPlayers))) {
+            $0.stage = .aborted(.insufficientPlayers)
+            $0.game = nil
+        }
+        XCTAssertEqual(store.state.abortMessage, "상대가 모두 퇴장했습니다")
+        XCTAssertNil(store.state.winnerID)
+        XCTAssertEqual(store.state.scoreboard, [])
+        await store.finish()
+        XCTAssertEqual(audio.stopCount.value, 1)
+    }
+
+    func test_GAME_ABORTED_INTERNAL_ERROR() async {
+        let audio = AudioRecorder()
+        let store = makeStore(playingState(), audio: audio)
+
+        await store.send(.server(.gameAborted(.internalError))) {
+            $0.stage = .aborted(.internalError)
+            $0.game = nil
+        }
+        XCTAssertEqual(store.state.abortMessage, "문제가 생겨 게임이 중단됐어요.")
+        await store.finish()
+        XCTAssertEqual(audio.stopCount.value, 1)
+    }
+
+    func test_곡_준비_중_GAME_ABORTED가_오면_준비를_취소하고_READY_TO_PLAY를_보내지_않는다() async {
+        let clock = TestClock()
+        let audio = AudioRecorder()
+        let store = TestStore(initialState: playingState()) {
             RoomReducer()
         } withDependencies: {
-            $0.roomSessionClient = .mock(roomEvents: { stream })
+            $0.audioClient = audio.client(preloadWait: (clock, .seconds(5)))
         }
-        await store.send(.onAppear)
-        
-        let newPlayer = Player(id: UUID())
-        continuation.yield(.playerJoined(newPlayer))
-        
-        await store.receive(\.receive) {
-            $0.players[newPlayer.id] = newPlayer
+
+        await store.send(.server(.preloadSong(isrc: "KRA381234567", startTime: 0, roundNumber: 1)))
+        await store.send(.server(.gameAborted(.insufficientPlayers))) {
+            $0.stage = .aborted(.insufficientPlayers)
+            $0.game = nil
         }
-        
-        continuation.finish()
-        
-        await store.send(.onDisappear)
+        await clock.advance(by: .seconds(5))
+        await store.finish()
+        XCTAssertEqual(audio.stopCount.value, 1)
     }
-    
-    func test_플레이어가_나가면_목록에서_제거() async {
-        let (stream, continuation) = AsyncStream.makeStream(of: RoomEvent.self)
-        let player = Player(id: UUID())
-        
-        let store = await TestStore(initialState: RoomReducer.State(roomID: "TEST_ROOM_ID", hostID: UUID(), players: [player.id: player]), reducer: { RoomReducer() }) {
-            $0.roomSessionClient = .mock(roomEvents: { stream })
+
+    func test_게임이_끝나면_오답_페널티_타이머도_취소된다() async {
+        let clock = TestClock()
+        let store = makeStore(playingState(), clock: clock)
+
+        await store.send(.server(.game(.wrongAnswer(playerID: TestID.myself, wrongAnswer: "x"))))
+        await store.receive(\.game.serverEvent) { $0.game?.inputState = .penalized }
+        let result = GameResult(winner: "", scores: [:])
+        await store.send(.server(.gameOver(result))) {
+            $0.stage = .finished(result)
+            $0.game = nil
         }
-        
-        await store.send(.onAppear)
-        
-        continuation.yield(.playerLeft(player))
-        
-        await store.receive(\.receive) {
-            $0.players[player.id] = nil
-        }
-        
-        continuation.finish()
-        
-        await store.send(.onDisappear)
+        await clock.advance(by: .seconds(1))
     }
-    
-    func test_호스트가_바뀌면_호스트ID가_변경() async {
-        let (stream, continuation) = AsyncStream.makeStream(of: RoomEvent.self)
-        let hostPlayer = Player(id: UUID())
-        
-        let store = await TestStore(initialState: RoomReducer.State(roomID: "TEST_ROOM_ID", hostID: hostPlayer.id, players: [:]), reducer: { RoomReducer() }) {
-            $0.roomSessionClient = .mock(roomEvents: { stream })
-        }
-        
-        await store.send(.onAppear)
-        
-        let newHost = Player(id: UUID())
-        
-        continuation.yield(.hostChanged(newHost))
-        
-        await store.receive(\.receive) {
-            $0.hostID = newHost.id
-        }
-        
-        continuation.finish()
-        
-        await store.send(.onDisappear)
-        
+}
+
+// MARK: - App 쪽에서 방을 없앨 때의 효과 정리 (design 12, T6 인계 확인)
+
+@Reducer
+struct RoomHost {
+    @ObservableState
+    struct State: Equatable {
+        var room: RoomReducer.State?
     }
-    
-    func test_게임_시작() async {
-        let (stream, continuation) = AsyncStream.makeStream(of: RoomEvent.self)
-        
-        let store = await TestStore(initialState: RoomReducer.State(roomID: "TEST_ROOM_ID", hostID: UUID(), players: [:])) {
-            RoomReducer()
-        } withDependencies: { $0.roomSessionClient = .mock(roomEvents: { stream }) }
-        
-        await store.send(.onAppear)
-        
-        continuation.yield(.gameStarted)
-        
-        await store.receive(\.receive) {
-            $0.gameState = GameReducer.State()
-            $0.roomState = .playing
-        }
-        
-        continuation.finish()
-        
-        await store.send(.onDisappear)
+
+    enum Action {
+        case room(RoomReducer.Action)
+        case backToLobby
     }
-    
-    func test_노래_받기() async {
-        let (stream, continuation) = AsyncStream.makeStream(of: RoomEvent.self)
-        var fetchedID: String?
-        
-        let store = await TestStore(initialState: RoomReducer.State(roomID: "TEST_ROOM_ID", hostID: UUID(), players: [:], gameState: GameReducer.State())) {
-            RoomReducer()
+
+    var body: some ReducerOf<Self> {
+        Reduce { state, action in
+            switch action {
+            case .backToLobby:
+                state.room = nil
+                return .none
+            case .room:
+                return .none
+            }
+        }
+        .ifLet(\.room, action: \.room) { RoomReducer() }
+    }
+}
+
+@MainActor
+final class RoomEffectCleanupTests: XCTestCase {
+    func test_부모가_방_상태를_없애면_곡_준비와_페널티_타이머가_취소된다() async {
+        let clock = TestClock()
+        var room = RoomReducer.State(welcome: .fixture())
+        room.stage = .playing
+        room.game = GameReducer.State()
+        let audio = AudioRecorder()
+        let store = TestStore(initialState: RoomHost.State(room: room)) {
+            RoomHost()
         } withDependencies: {
-            $0.roomSessionClient = .mock(roomEvents: { stream })
-            $0.audioClient.preload = { id, _, _ in fetchedID = id }
+            $0.audioClient = audio.client(preloadWait: (clock, .seconds(5)))
+            $0.continuousClock = clock
         }
-        
-        await store.send(.onAppear)
-        
-        // 에픽하이 - 우산
-        continuation.yield(.preloadSong(isrc: "TEST_ISRC", startTime: 0, roundNumber: 1))
-        
-        await store.receive(\.receive)
-        XCTAssertEqual(fetchedID, "TEST_ISRC")
-        await store.receive(\.toServer)
-        
-        continuation.finish()
-        await store.send(.onDisappear)
-    }
-    
-    func test_라운드_시작() async {
-        let (stream, continuation) = AsyncStream.makeStream(of: RoomEvent.self)
-        let roundData = RoundData(roundNumber: 1, totalRounds: 100, letterCards: ["타", "임", "캡", "슐"], answerLength: 4)
-        var didPlay = false
-        
-        let store = await TestStore(initialState: RoomReducer.State(roomID: "TEST_ROOM_ID",
-                                                                    hostID: UUID(),
-                                                                    players: [:],
-                                                                    roomState: .playing,
-                                                                    gameState: GameReducer.State(roundState: .idle)
-                                                                   ),
-                                    reducer: { RoomReducer() }) {
-            $0.roomSessionClient = .mock(roomEvents: { stream })
-            $0.audioClient.play = { didPlay = true }
+
+        await store.send(.room(.server(.preloadSong(isrc: "KRA381234567", startTime: 0, roundNumber: 1))))
+        await store.send(.room(.server(.game(.wrongAnswer(playerID: TestID.myself, wrongAnswer: "x")))))
+        await store.receive(\.room.game.serverEvent) { $0.room?.game?.inputState = .penalized }
+
+        await store.send(.backToLobby) {
+            $0.room = nil
         }
-        
-        await store.send(.onAppear)
-        
-        continuation.yield(.game(.roundStarted(roundData)))
-        
-        await store.receive(\.receive)
-        await store.receive(\.game) {
-            $0.gameState?.roundState = .playing
-            $0.gameState?.inputState = .enabled
-            $0.gameState?.roundData = roundData
-        }
-        await store.receive(\.game)
-        
-        XCTAssertEqual(didPlay, true)
-        
-        continuation.finish()
-        await store.send(.onDisappear)
-    }
-    
-    func test_라운드_종료() async {
-        let (stream, continuation) = AsyncStream.makeStream(of: RoomEvent.self)
-        let roundResult = RoundResult(winnerId: "WINNER_ID", correctAnswer: "편지", scores: [:])
-        var didStop = false
-        
-        let store = await TestStore(initialState: RoomReducer.State(roomID: "TEST_ROOM_ID",
-                                                                    hostID: UUID(),
-                                                                    players: [:],
-                                                                    roomState: .playing,
-                                                                    gameState: GameReducer.State(roundState: .playing)
-                                                                   ), reducer: { RoomReducer() }) {
-            $0.roomSessionClient = .mock(roomEvents: { stream })
-            $0.audioClient.stop = { didStop = true }
-        }
-        
-        await store.send(.onAppear)
-        
-        continuation.yield(.game(.roundEnded(roundResult)))
-        
-        await store.receive(\.receive)
-        await store.receive(\.game) {
-            $0.gameState?.roundState = .result
-            $0.gameState?.roundResult = roundResult
-            $0.gameState?.inputState = .enabled
-        }
-        await store.receive(\.game)
-        
-        XCTAssertEqual(didStop, true)
-        
-        continuation.finish()
-        await store.send(.onDisappear)
-        
-    }
-    
-    func test_라운드_시작시_이전_라운드_상태_초기화() async {
-        let store = await TestStore(
-            initialState: GameReducer.State(
-                selectedLetters: ["마", "라", "탕", "있", "다", "면"],
-                roundState: .result,
-                inputState: .submitting,
-                roundResult: RoundResult(winnerId: "P2", correctAnswer: "마라탕있다면", scores: [:]),
-                remainingTime: 7
-            )
-        ) {
-            GameReducer()
-        }
-        
-        let nextRound = RoundData(roundNumber: 2, totalRounds: 100,
-                                  letterCards: ["타", "임", "캡", "슐"], answerLength: 4)
-        
-        await store.send(.serverEvent(.roundStarted(nextRound))) {
-            $0.selectedLetters = []
-            $0.roundResult = nil
-            $0.remainingTime = 0
-            $0.roundData = nextRound
-            $0.roundState = .playing
-            $0.inputState = .enabled
-        }
-        
-        await store.receive(\.delegate)
-    }
-    
-    func test_게임_종료() async {
-        let (stream, continuation) = AsyncStream.makeStream(of: RoomEvent.self)
-        
-        let store = await TestStore(initialState: RoomReducer.State(roomID: "TEST_ROOM_ID",
-                                                                    hostID: UUID(),
-                                                                    players: [:],
-                                                                    roomState: .playing,
-                                                                    gameState: GameReducer.State()), reducer: { RoomReducer() }) {
-            $0.roomSessionClient = .mock(roomEvents: { stream })
-        }
-        
-        await store.send(.onAppear)
-        let gameResult = GameResult(winner: "WINNER_ID", scores: [:])
-        continuation.yield(.gameFinished(gameResult))
-        
-        await store.receive(\.receive) {
-            $0.gameResult = gameResult
-            $0.roomState = .result
-            $0.gameState = nil
-        }
-        
-        continuation.finish()
-        
-        await store.send(.onDisappear)
-    }
-    
-    func test_답_제출하면_서버_전송() async {
-        let (stream, continuation) = AsyncStream.makeStream(of: RoomEvent.self)
-        var sentRequest: RoomRequest?
-        
-        let store = await TestStore(initialState: RoomReducer.State(roomID: "TEST_ROOM_ID",
-                                                                    hostID: UUID(),
-                                                                    players: [:],
-                                                                    roomState: .playing,
-                                                                    gameState: GameReducer.State()
-                                                                   ), reducer: { RoomReducer() }) {
-            $0.roomSessionClient = .mock(send: { sentRequest = $0 }, roomEvents: { stream })
-        }
-        
-        await store.send(.onAppear)
-        await store.send(.game(.delegate(.submitAnswer("test"))))
-        
-        await store.receive(\.toServer)
-        
-        XCTAssertEqual(sentRequest, .game(.submitAnswer("test")))
-        
-        continuation.finish()
-        await store.send(.onDisappear)
+        // READY_TO_PLAY와 penaltyFinished가 오지 않는다
+        await clock.advance(by: .seconds(10))
     }
 }
