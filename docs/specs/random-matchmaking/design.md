@@ -86,7 +86,7 @@
   - `FeatureLobby` → `Models`, `ClientCatalog`, `ComposableArchitecture`
   - `FeatureRoom` → `Models`, `ClientAudio`, `ClientMusicEntitlement`, `ComposableArchitecture`
   - `ClientSession` → `Models`
-  - `ClientSessionLive` → `ClientSession`, `ClientWebSocket`, `Models`
+  - `ClientSessionLive` → `ClientSession`, `ClientWebSocket`, `ClientWebSocketLive`, `Models`
   - `ClientCatalog` → `Models` / `ClientCatalogLive` → `ClientCatalog`, `Models`
   - `M_GAME` → 모든 Feature, 모든 Client Interface와 Live
 - 금지:

@@ -53,6 +53,7 @@ let project = Project(
                     dependencies: [
                         .target(name: "ClientSession"),
                         .target(name: "ClientWebSocket"),
+                        .target(name: "ClientWebSocketLive"),
                         .target(name: "Models"),
                         .external(name: "ComposableArchitecture")
                     ]
