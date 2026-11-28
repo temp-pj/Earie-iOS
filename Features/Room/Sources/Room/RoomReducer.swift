@@ -27,8 +27,12 @@ public struct RoomReducer {
         /// 서버 접수 순서 (REQ-ROOM-01)
         public var players: [String]
         public var maxPlayers: Int
-        /// 확정된 방 조건
+        /// 확정된 방 조건 (wire 값)
         public var category: MatchCategory
+        /// 확정된 방 조건의 표시용 이름. 부모가 카탈로그로 만들어 넘긴다.
+        public var categoryLabel: CategoryLabel
+        /// 나를 뺀 참가자의 참가 순서. 나간 참가자도 빼지 않아 "상대 N" 번호가 바뀌지 않는다.
+        public var opponentOrder: [String]
         public var stage: Stage
         public var isLeaving: Bool
         /// START_GAME을 보내고 GAME_STARTED나 ROOM_COMMAND_FAILED를 기다리는 중 (REQ-ROOM-09)
@@ -44,6 +48,8 @@ public struct RoomReducer {
             players: [String],
             maxPlayers: Int,
             category: MatchCategory,
+            categoryLabel: CategoryLabel,
+            opponentOrder: [String]? = nil,
             stage: Stage = .waiting,
             isLeaving: Bool = false,
             isStartRequesting: Bool = false,
@@ -56,6 +62,8 @@ public struct RoomReducer {
             self.players = players
             self.maxPlayers = maxPlayers
             self.category = category
+            self.categoryLabel = categoryLabel
+            self.opponentOrder = opponentOrder ?? players.filter { $0 != myPlayerID }
             self.stage = stage
             self.isLeaving = isLeaving
             self.isStartRequesting = isStartRequesting
@@ -64,14 +72,16 @@ public struct RoomReducer {
         }
 
         /// 활성 요청의 WELCOME으로 방을 만든다 (REQ-MATCH-07). WELCOME의 형식 검증은 `MessageCodec`이 이미 했다.
-        public init(welcome: WireV1.WelcomePayload) {
+        /// `categoryLabel`은 `welcome.category`의 표시용 이름이다. Room은 카탈로그를 모른다.
+        public init(welcome: WireV1.WelcomePayload, categoryLabel: CategoryLabel) {
             self.init(
                 roomID: welcome.roomID,
                 myPlayerID: welcome.playerID,
                 hostID: welcome.hostID,
                 players: welcome.players,
                 maxPlayers: welcome.maxPlayers,
-                category: welcome.category
+                category: welcome.category,
+                categoryLabel: categoryLabel
             )
         }
 
@@ -92,14 +102,38 @@ public struct RoomReducer {
             return result.winner
         }
 
+        public var winnerLabel: PlayerLabel? {
+            guard case .finished(let result) = stage, let winnerID else { return nil }
+            return playerLabels(for: result)[winnerID]
+        }
+
         /// 결과 화면의 점수. 서버 참가자 순서를 따르고, 목록에 없는 플레이어는 뒤에 ID 순으로 붙인다.
         public var scoreboard: [Score] {
             guard case .finished(let result) = stage else { return [] }
+            let labels = playerLabels(for: result)
             let ordered = players.filter { result.scores[$0] != nil }
             let others = result.scores.keys.filter { !players.contains($0) }.sorted()
             return (ordered + others).compactMap { playerID in
-                result.scores[playerID].map { Score(playerID: playerID, score: $0) }
+                guard let score = result.scores[playerID], let label = labels[playerID] else { return nil }
+                return Score(playerID: playerID, label: label, score: score)
             }
+        }
+
+        /// 참가자 표시: 나는 `.myself`, 다른 참가자는 참가 순서대로 `.opponent(1)`, `.opponent(2)`, ...
+        public func playerLabel(_ playerID: String) -> PlayerLabel? {
+            if playerID == myPlayerID { return .myself }
+            return opponentOrder.firstIndex(of: playerID).map { .opponent($0 + 1) }
+        }
+
+        /// 결과에만 있고 참가 기록에 없는 플레이어는 참가 순서 뒤에 ID 순으로 번호를 잇는다.
+        private func playerLabels(for result: GameResult) -> [String: PlayerLabel] {
+            let resultIDs = Set(result.scores.keys).union(result.winner.isEmpty ? [] : [result.winner])
+            let unknown = resultIDs.filter { $0 != myPlayerID && !opponentOrder.contains($0) }.sorted()
+            var labels: [String: PlayerLabel] = [myPlayerID: .myself]
+            for (index, playerID) in (opponentOrder + unknown).enumerated() {
+                labels[playerID] = .opponent(index + 1)
+            }
+            return labels
         }
 
         /// GAME_ABORTED 사유별 문구 (REQ-GAME-05)
@@ -118,8 +152,31 @@ public struct RoomReducer {
 
     public struct Score: Equatable, Sendable, Identifiable {
         public let playerID: String
+        public let label: PlayerLabel
         public let score: Int
         public var id: String { playerID }
+    }
+
+    /// 확정 조합의 표시용 이름. `MatchCategory`와 같은 네 축이다.
+    public struct CategoryLabel: Equatable, Sendable {
+        public var decade: String
+        public var artistType: String
+        public var gender: String
+        public var genre: String
+
+        public init(decade: String, artistType: String, gender: String, genre: String) {
+            self.decade = decade
+            self.artistType = artistType
+            self.gender = gender
+            self.genre = genre
+        }
+    }
+
+    /// 참가자 표시. 문구는 RoomView가 정한다.
+    public enum PlayerLabel: Equatable, Sendable {
+        case myself
+        /// 참가 순서 번호 (1부터)
+        case opponent(Int)
     }
 
     public enum Action {
@@ -211,6 +268,9 @@ public struct RoomReducer {
         case .playerJoined(let playerID):
             if !state.players.contains(playerID) {
                 state.players.append(playerID)
+            }
+            if playerID != state.myPlayerID, !state.opponentOrder.contains(playerID) {
+                state.opponentOrder.append(playerID)
             }
             return .none
 

@@ -20,7 +20,7 @@ final class RoomReducerTests: XCTestCase {
     func test_WELCOME으로_방_상태를_만든다() {
         let welcome = WireV1.WelcomePayload.fixture(hostID: TestID.other, players: [TestID.other, TestID.myself])
 
-        let state = RoomReducer.State(welcome: welcome)
+        let state = RoomReducer.State(welcome: welcome, categoryLabel: .roomFixture)
 
         XCTAssertEqual(state.roomID, TestID.room)
         XCTAssertEqual(state.myPlayerID, TestID.myself)
@@ -28,6 +28,8 @@ final class RoomReducerTests: XCTestCase {
         XCTAssertEqual(state.players, [TestID.other, TestID.myself])
         XCTAssertEqual(state.maxPlayers, 8)
         XCTAssertEqual(state.category, .roomFixture)
+        XCTAssertEqual(state.categoryLabel, .roomFixture)
+        XCTAssertEqual(state.opponentOrder, [TestID.other])
         XCTAssertEqual(state.stage, .waiting)
         XCTAssertFalse(state.isLeaving)
         XCTAssertFalse(state.isStartRequesting)
@@ -43,13 +45,14 @@ final class RoomReducerTests: XCTestCase {
 
         await store.send(.server(.playerJoined(playerID: TestID.third))) {
             $0.players = [TestID.myself, TestID.other, TestID.third]
+            $0.opponentOrder = [TestID.other, TestID.third]
         }
         // 이미 있는 참가자는 다시 넣지 않는다
         await store.send(.server(.playerJoined(playerID: TestID.other)))
     }
 
     func test_PLAYER_LEFT는_목록에서_뺀다() async {
-        let store = makeStore(RoomReducer.State(welcome: .fixture(players: [TestID.myself, TestID.other, TestID.third])))
+        let store = makeStore(RoomReducer.State.fixture(.fixture(players: [TestID.myself, TestID.other, TestID.third])))
 
         await store.send(.server(.playerLeft(playerID: TestID.other))) {
             $0.players = [TestID.myself, TestID.third]
@@ -67,6 +70,37 @@ final class RoomReducerTests: XCTestCase {
         XCTAssertFalse(store.state.isHost)
     }
 
+    // MARK: - 참가자 표시 (REQ-ROOM-01)
+
+    func test_참가자는_나와_참가_순서대로_상대_N으로_표시한다() async {
+        let store = makeStore(RoomReducer.State.fixture(.fixture(hostID: TestID.other, players: [TestID.other, TestID.myself])))
+
+        XCTAssertEqual(store.state.playerLabel(TestID.myself), .myself)
+        XCTAssertEqual(store.state.playerLabel(TestID.other), .opponent(1))
+
+        await store.send(.server(.playerJoined(playerID: TestID.third))) {
+            $0.players = [TestID.other, TestID.myself, TestID.third]
+            $0.opponentOrder = [TestID.other, TestID.third]
+        }
+        XCTAssertEqual(store.state.playerLabel(TestID.third), .opponent(2))
+    }
+
+    func test_상대가_나가도_남은_상대의_번호는_바뀌지_않는다() async {
+        let store = makeStore(RoomReducer.State.fixture(.fixture(players: [TestID.myself, TestID.other, TestID.third])))
+
+        await store.send(.server(.playerLeft(playerID: TestID.other))) {
+            $0.players = [TestID.myself, TestID.third]
+        }
+        XCTAssertEqual(store.state.opponentOrder, [TestID.other, TestID.third])
+        XCTAssertEqual(store.state.playerLabel(TestID.third), .opponent(2))
+
+        // 나간 상대의 점수도 결과 화면에서 같은 번호로 보인다
+        var state = store.state
+        state.stage = .finished(GameResult(winner: TestID.other, scores: [TestID.myself: 1, TestID.other: 2, TestID.third: 0]))
+        XCTAssertEqual(state.winnerLabel, .opponent(1))
+        XCTAssertEqual(state.scoreboard.map(\.label), [.myself, .opponent(2), .opponent(1)])
+    }
+
     // MARK: - 시작 버튼 판정 (REQ-ROOM-03, EDGE-09, EDGE-10)
 
     func test_방장이고_2명_이상_대기_중이면_시작할_수_있다() async {
@@ -80,31 +114,31 @@ final class RoomReducerTests: XCTestCase {
     }
 
     func test_방장_혼자면_시작할_수_없다() async {
-        let store = makeStore(RoomReducer.State(welcome: .fixture(players: [TestID.myself])))
+        let store = makeStore(RoomReducer.State.fixture(.fixture(players: [TestID.myself])))
         XCTAssertFalse(store.state.canStart)
 
         await store.send(.startTapped)
     }
 
     func test_방장이_아니면_시작할_수_없다() async {
-        let store = makeStore(RoomReducer.State(welcome: .fixture(hostID: TestID.other)))
+        let store = makeStore(RoomReducer.State.fixture(.fixture(hostID: TestID.other)))
         XCTAssertFalse(store.state.canStart)
 
         await store.send(.startTapped)
     }
 
     func test_나가는_중이거나_대기_상태가_아니면_시작할_수_없다() {
-        var leaving = RoomReducer.State(welcome: .fixture())
+        var leaving = RoomReducer.State.fixture()
         leaving.isLeaving = true
         XCTAssertFalse(leaving.canStart)
 
         XCTAssertFalse(playingState().canStart)
 
-        var finished = RoomReducer.State(welcome: .fixture())
+        var finished = RoomReducer.State.fixture()
         finished.stage = .finished(GameResult(winner: "", scores: [:]))
         XCTAssertFalse(finished.canStart)
 
-        var aborted = RoomReducer.State(welcome: .fixture())
+        var aborted = RoomReducer.State.fixture()
         aborted.stage = .aborted(.internalError)
         XCTAssertFalse(aborted.canStart)
     }
@@ -120,7 +154,7 @@ final class RoomReducerTests: XCTestCase {
     }
 
     func test_방장이_나가서_내가_방장이_되면_시작할_수_있다() async {
-        let store = makeStore(RoomReducer.State(welcome: .fixture(hostID: TestID.other, players: [TestID.other, TestID.myself, TestID.third])))
+        let store = makeStore(RoomReducer.State.fixture(.fixture(hostID: TestID.other, players: [TestID.other, TestID.myself, TestID.third])))
         XCTAssertFalse(store.state.canStart)
 
         await store.send(.server(.playerLeft(playerID: TestID.other))) {
@@ -200,7 +234,7 @@ final class RoomReducerTests: XCTestCase {
     }
 
     func test_나가는_중에는_나가기와_시작을_다시_보내지_않고_방_이벤트는_반영한다() async {
-        var state = RoomReducer.State(welcome: .fixture())
+        var state = RoomReducer.State.fixture()
         state.isLeaving = true
         let store = makeStore(state)
 
@@ -209,6 +243,7 @@ final class RoomReducerTests: XCTestCase {
 
         await store.send(.server(.playerJoined(playerID: TestID.third))) {
             $0.players = [TestID.myself, TestID.other, TestID.third]
+            $0.opponentOrder = [TestID.other, TestID.third]
         }
         await store.send(.server(.hostChanged(playerID: TestID.other))) {
             $0.hostID = TestID.other
@@ -216,7 +251,7 @@ final class RoomReducerTests: XCTestCase {
     }
 
     func test_나가는_중에_GAME_STARTED가_오면_게임으로_바뀌고_나가는_중을_유지한다() async {
-        var state = RoomReducer.State(welcome: .fixture())
+        var state = RoomReducer.State.fixture()
         state.isLeaving = true
         let audio = AudioRecorder()
         let store = makeStore(state, audio: audio)
@@ -270,7 +305,7 @@ final class RoomReducerTests: XCTestCase {
 
     func test_결과_화면의_나가기는_확인창_없이_LEAVE_ROOM() async {
         for stage in [RoomReducer.Stage.finished(GameResult(winner: "", scores: [:])), .aborted(.insufficientPlayers)] {
-            var state = RoomReducer.State(welcome: .fixture())
+            var state = RoomReducer.State.fixture()
             state.stage = stage
             let store = makeStore(state)
 
@@ -418,9 +453,10 @@ final class RoomGameTests: XCTestCase {
         await store.finish()
         XCTAssertEqual(audio.stopCount.value, 2)
         XCTAssertEqual(store.state.winnerID, TestID.other)
+        XCTAssertEqual(store.state.winnerLabel, .opponent(1))
         XCTAssertEqual(store.state.scoreboard, [
-            .init(playerID: TestID.myself, score: 0),
-            .init(playerID: TestID.other, score: 1)
+            .init(playerID: TestID.myself, label: .myself, score: 0),
+            .init(playerID: TestID.other, label: .opponent(1), score: 1)
         ])
         XCTAssertNil(store.state.abortMessage)
     }
@@ -437,15 +473,17 @@ final class RoomGameTests: XCTestCase {
             $0.game = nil
         }
         XCTAssertNil(store.state.winnerID)
+        XCTAssertNil(store.state.winnerLabel)
         await store.finish()
         XCTAssertEqual(audio.stopCount.value, 1)
-        // 서버 참가자 순서, 이미 나간 참가자는 뒤에
+        // 서버 참가자 순서, 참가 기록에 없는 참가자는 뒤에 번호를 이어 붙인다
         XCTAssertEqual(store.state.scoreboard.map(\.playerID), [TestID.myself, TestID.other, TestID.third])
+        XCTAssertEqual(store.state.scoreboard.map(\.label), [.myself, .opponent(1), .opponent(2)])
     }
 
     func test_결과_화면에서는_GAME_STARTED_GAME_OVER_GAME_ABORTED를_무시한다() async {
         let first = GameResult(winner: TestID.myself, scores: [TestID.myself: 3])
-        var state = RoomReducer.State(welcome: .fixture())
+        var state = RoomReducer.State.fixture()
         state.stage = .finished(first)
         let audio = AudioRecorder()
         let store = makeStore(state, audio: audio)
@@ -562,7 +600,7 @@ struct RoomHost {
 final class RoomEffectCleanupTests: XCTestCase {
     func test_부모가_방_상태를_없애면_곡_준비와_페널티_타이머가_취소된다() async {
         let clock = TestClock()
-        var room = RoomReducer.State(welcome: .fixture())
+        var room = RoomReducer.State.fixture()
         room.stage = .playing
         room.game = GameReducer.State()
         let audio = AudioRecorder()

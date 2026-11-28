@@ -31,7 +31,18 @@ enum TestID {
 }
 
 extension MatchCategory {
-    static let roomFixture = MatchCategory(decade: "2010s", artistType: "all", gender: "all", genre: "korean_ballad")
+    static let roomFixture = MatchCategory(decade: "2010s", artistType: "any", gender: "any", genre: "korean_ballad")
+}
+
+/// `MatchCategory.roomFixture`의 표시용 이름. 실제 문구는 부모(App)가 카탈로그로 만든다.
+extension RoomReducer.CategoryLabel {
+    static let roomFixture = RoomReducer.CategoryLabel(decade: "2010년대", artistType: "상관없음", gender: "상관없음", genre: "발라드")
+}
+
+extension RoomReducer.State {
+    static func fixture(_ welcome: WireV1.WelcomePayload = .fixture()) -> Self {
+        Self(welcome: welcome, categoryLabel: .roomFixture)
+    }
 }
 
 extension WireV1.WelcomePayload {
@@ -91,7 +102,7 @@ struct PreloadFailure: Error {}
 @MainActor
 extension XCTestCase {
     func makeStore(
-        _ state: RoomReducer.State = RoomReducer.State(welcome: .fixture()),
+        _ state: RoomReducer.State = RoomReducer.State.fixture(),
         audio: AudioRecorder = AudioRecorder(),
         preloadError: (any Error & Sendable)? = nil,
         clock: TestClock<Duration> = TestClock()
@@ -105,7 +116,7 @@ extension XCTestCase {
     }
 
     func playingState(isLeaving: Bool = false) -> RoomReducer.State {
-        var state = RoomReducer.State(welcome: .fixture())
+        var state = RoomReducer.State.fixture()
         state.stage = .playing
         state.game = GameReducer.State()
         state.isLeaving = isLeaving

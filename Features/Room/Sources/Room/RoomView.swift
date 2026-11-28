@@ -55,18 +55,17 @@ private struct RoomWaitingView: View {
 
             ForEach(store.players, id: \.self) { playerID in
                 HStack {
-                    Text(playerID.prefix(8))
-                        .monospaced()
-                    if playerID == store.hostID {
-                        Text("방장").foregroundStyle(.orange)
+                    if let label = store.state.playerLabel(playerID) {
+                        Text(label.title)
+                            .foregroundStyle(label == .myself ? .blue : .primary)
                     }
-                    if playerID == store.myPlayerID {
-                        Text("나").foregroundStyle(.blue)
+                    if playerID == store.hostID {
+                        Text(RoomViewText.host).foregroundStyle(.orange)
                     }
                 }
             }
 
-            CategoryView(category: store.category)
+            CategoryView(label: store.categoryLabel)
 
             Button("시작") {
                 store.send(.startTapped)
@@ -78,14 +77,14 @@ private struct RoomWaitingView: View {
 }
 
 private struct CategoryView: View {
-    let category: MatchCategory
+    let label: RoomReducer.CategoryLabel
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text("연대: \(category.decade)")
-            Text("구성: \(category.artistType)")
-            Text("성별: \(category.gender)")
-            Text("장르: \(category.genre)")
+            Text("\(RoomViewText.decade): \(label.decade)")
+            Text("\(RoomViewText.artistType): \(label.artistType)")
+            Text("\(RoomViewText.gender): \(label.gender)")
+            Text("\(RoomViewText.genre): \(label.genre)")
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
@@ -102,20 +101,17 @@ private struct RoomResultView: View {
                 Text(abortMessage)
                     .font(.headline)
             } else {
-                if let winnerID = store.winnerID {
-                    Text("승자: \(winnerID.prefix(8))")
+                if let winner = store.winnerLabel {
+                    Text("\(RoomViewText.winner): \(winner.title)")
                         .font(.headline)
                 } else {
-                    Text("승자 없음")
+                    Text(RoomViewText.noWinner)
                         .font(.headline)
                 }
                 ForEach(store.scoreboard) { score in
                     HStack {
-                        Text(score.playerID.prefix(8))
-                            .monospaced()
-                        if score.playerID == store.myPlayerID {
-                            Text("나").foregroundStyle(.blue)
-                        }
+                        Text(score.label.title)
+                            .foregroundStyle(score.label == .myself ? .blue : .primary)
                         Spacer()
                         Text("\(score.score)")
                     }
@@ -177,6 +173,26 @@ private struct GameView: View {
             Button("SUBMIT") {
                 store.send(.submit(store.selectedLetters.joined()))
             }
+        }
+    }
+}
+
+/// 방 화면 문구 (임시). 참가자 표시는 playerID 대신 "나", "상대 N"을 쓴다.
+private enum RoomViewText {
+    static let host = "방장"
+    static let decade = "연대"
+    static let artistType = "구성"
+    static let gender = "성별"
+    static let genre = "장르"
+    static let winner = "승자"
+    static let noWinner = "승자 없음"
+}
+
+private extension RoomReducer.PlayerLabel {
+    var title: String {
+        switch self {
+        case .myself: "나"
+        case let .opponent(number): "상대 \(number)"
         }
     }
 }
