@@ -114,7 +114,7 @@ final class CatalogClientLiveTests: XCTestCase {
     }
 
     /// 알려진 차이: 형식(필수, null, 타입)은 맞고 값만 서버 카탈로그 감사 기준에 어긋나는 레시피.
-    /// design 3·7번은 Live에 형식 읽기만 맡기므로 지금은 읽기에 성공한다. 거부 여부는 결정이 필요하다 (PR 본문).
+    /// iOS는 읽기 실패와 형식 오류만 처리하고 값 규칙은 카탈로그 파일을 만드는 쪽에서 검사하기로 결정했으므로 읽기에 성공한다 (PR #41 결정 사항).
     func test_알려진_차이_형식은_맞고_값만_어긋난_projection_레시피는_읽는다() throws {
         let recipes = try CatalogFixtures.invalidRecipes(file: "catalog-projection.json")
             .filter { !$0.name.hasPrefix("catalog-projection.json-") }
