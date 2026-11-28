@@ -1,4 +1,17 @@
+require "fileutils"
+require "net/http"
+require "shellwords"
+require "socket"
+
 default_platform(:ios)
+
+# 통합 테스트가 붙는 서버 (tasks.md 9번). temp-pj/Earie-ws feature/random-matchmaking, S1(#45) 병합 커밋.
+INTEGRATION_SERVER_REPO = "https://github.com/temp-pj/Earie-ws.git"
+INTEGRATION_SERVER_SHA = "38266529d6f3b52544829833534da254d420cf32"
+# 서버는 :8080 고정으로 뜬다 (cmd/server/main.go). 테스트 쪽 주소는 IntegrationPlayer.host.
+INTEGRATION_SERVER_PORT = 8080
+INTEGRATION_READY_TIMEOUT = 60
+INTEGRATION_STOP_TIMEOUT = 10
 
 platform :ios do
 
@@ -33,4 +46,139 @@ platform :ios do
     )
   end
 
+  desc "서버 통합 테스트 (SessionIntegrationTests 스킴). 고정 SHA의 Earie-ws 서버를 fixture로 띄우고, 테스트 후 성패와 관계없이 종료한다."
+  desc "Go가 필요하다. 서버 소스는 EARIE_WS_DIR(기본 .build/integration/earie-ws)에 받는다. 시뮬레이터는 TEST_DESTINATION."
+  lane :integration do
+    root = File.expand_path("..", Dir.pwd)
+    UI.user_error!("저장소 루트를 찾지 못함: #{root}") unless File.exist?(File.join(root, "Project.swift"))
+    destination = ENV.fetch("TEST_DESTINATION", "platform=iOS Simulator,name=iPhone 16")
+    work_dir = File.join(root, ".build", "integration")
+    server_dir = File.expand_path(ENV.fetch("EARIE_WS_DIR", File.join(work_dir, "earie-ws")))
+    fixtures = File.join(root, "docs", "specs", "random-matchmaking", "fixtures")
+
+    sh("cd .. && tuist install")
+    sh("cd .. && tuist generate --no-open")
+
+    server_bin = integration_build_server(server_dir, work_dir)
+    integration_ensure_port_free
+    log_path = File.join(work_dir, "server.log")
+    pid = integration_start_server(
+      server_bin,
+      server_dir,
+      log_path,
+      "CATALOG_PATH" => File.join(fixtures, "catalog.json"),
+      "SONG_MANIFEST_PATH" => File.join(fixtures, "manifest.json")
+    )
+
+    succeeded = false
+    begin
+      integration_wait_ready(pid, log_path)
+      sh(
+        "cd .. && xcodebuild " \
+        "-workspace M_GAME.xcworkspace " \
+        "-scheme SessionIntegrationTests " \
+        "-destination '#{destination}' " \
+        "-skipPackagePluginValidation " \
+        "test"
+      )
+      succeeded = true
+    ensure
+      integration_stop_server(pid)
+      integration_print_log(log_path) unless succeeded
+    end
+  end
+
+end
+
+# 고정 SHA를 받아 서버 바이너리를 빌드하고 그 경로를 돌려준다.
+def integration_build_server(server_dir, work_dir)
+  UI.user_error!("go가 없습니다. Go를 설치한 뒤 다시 실행하세요.") unless system("command -v go > /dev/null")
+  FileUtils.mkdir_p(work_dir)
+  dir = server_dir.shellescape
+
+  unless File.directory?(File.join(server_dir, ".git"))
+    FileUtils.mkdir_p(server_dir)
+    sh("git -C #{dir} init --quiet")
+    sh("git -C #{dir} remote add origin #{INTEGRATION_SERVER_REPO}")
+  end
+  unless system("git -C #{dir} cat-file -e #{INTEGRATION_SERVER_SHA}^{commit} 2> /dev/null")
+    sh("git -C #{dir} fetch --quiet --depth 1 origin #{INTEGRATION_SERVER_SHA}")
+  end
+  unless `git -C #{dir} status --porcelain`.strip.empty?
+    UI.user_error!("서버 소스에 커밋되지 않은 변경이 있습니다: #{server_dir}")
+  end
+  sh("git -C #{dir} checkout --quiet --detach #{INTEGRATION_SERVER_SHA}")
+  head = `git -C #{dir} rev-parse HEAD`.strip
+  UI.user_error!("서버 SHA 불일치: #{head} (기대 #{INTEGRATION_SERVER_SHA})") unless head == INTEGRATION_SERVER_SHA
+  UI.message("통합 테스트 서버: #{INTEGRATION_SERVER_REPO} @ #{head}")
+
+  server_bin = File.join(work_dir, "earie-ws-server")
+  sh("cd #{dir} && go build -o #{server_bin.shellescape} ./cmd/server")
+  server_bin
+end
+
+# 이미 떠 있는 다른 서버에 테스트가 붙지 않게 한다.
+def integration_ensure_port_free
+  TCPSocket.new("127.0.0.1", INTEGRATION_SERVER_PORT).close
+  UI.user_error!("127.0.0.1:#{INTEGRATION_SERVER_PORT}을 이미 다른 프로세스가 쓰고 있습니다. 종료한 뒤 다시 실행하세요.")
+rescue Errno::ECONNREFUSED, Errno::EADDRNOTAVAIL
+  nil
+end
+
+def integration_start_server(server_bin, server_dir, log_path, env)
+  UI.message("서버 시작 (로그: #{log_path})")
+  Process.spawn(env, server_bin, chdir: server_dir, out: log_path, err: [:child, :out], pgroup: true)
+end
+
+# 서버에는 health 엔드포인트가 없다. /ws에 protocolVersion 없이 보내면 upgrade 전에 HTTP 400으로 답하므로
+# 그 응답이 오면 HTTP 서버가 요청을 받는 상태로 본다.
+def integration_wait_ready(pid, log_path)
+  deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + INTEGRATION_READY_TIMEOUT
+  loop do
+    if Process.waitpid(pid, Process::WNOHANG)
+      integration_print_log(log_path)
+      UI.user_error!("서버가 준비 전에 종료됨 (exit #{$?.exitstatus})")
+    end
+    begin
+      response = Net::HTTP.start("127.0.0.1", INTEGRATION_SERVER_PORT, open_timeout: 1, read_timeout: 2) do |http|
+        http.get("/ws")
+      end
+      if response.code == "400"
+        UI.success("서버 준비됨: 127.0.0.1:#{INTEGRATION_SERVER_PORT}")
+        return
+      end
+      UI.message("서버 응답 대기 중 (HTTP #{response.code})")
+    rescue Errno::ECONNREFUSED, Errno::ECONNRESET, Net::OpenTimeout, Net::ReadTimeout, EOFError
+      nil
+    end
+    UI.user_error!("서버가 #{INTEGRATION_READY_TIMEOUT}초 안에 준비되지 않음") if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+    sleep(0.5)
+  end
+end
+
+# TERM으로 프로세스 그룹을 종료하고, 제한 시간 안에 끝나지 않으면 KILL한다.
+def integration_stop_server(pid)
+  return if Process.waitpid(pid, Process::WNOHANG)
+
+  Process.kill("TERM", -pid)
+  deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + INTEGRATION_STOP_TIMEOUT
+  until Process.waitpid(pid, Process::WNOHANG)
+    if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+      UI.important("서버가 TERM 후 #{INTEGRATION_STOP_TIMEOUT}초 안에 끝나지 않아 KILL")
+      Process.kill("KILL", -pid)
+      Process.waitpid(pid)
+      break
+    end
+    sleep(0.2)
+  end
+  UI.message("서버 종료됨 (pid #{pid})")
+rescue Errno::ESRCH, Errno::ECHILD
+  UI.message("서버가 이미 종료됨 (pid #{pid})")
+end
+
+def integration_print_log(log_path)
+  return unless File.exist?(log_path)
+
+  UI.important("서버 로그 (#{log_path}):")
+  puts(File.read(log_path))
 end

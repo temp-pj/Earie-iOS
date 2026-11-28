@@ -39,3 +39,16 @@ jobs:
 
       - name: Run unit tests
         run: bundle exec fastlane test
+
+      # 서버 통합 테스트는 PR에서만 돌린다. push CI는 린트, 빌드, 단위 테스트까지만 한다 (tasks.md 9번).
+      # Go 버전은 fastlane/Fastfile의 INTEGRATION_SERVER_SHA 시점 서버 go.mod와 맞춘다.
+      - name: Setup Go (integration)
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.2"
+          cache: false
+
+      - name: Run integration tests
+        if: github.event_name == 'pull_request'
+        run: bundle exec fastlane integration
