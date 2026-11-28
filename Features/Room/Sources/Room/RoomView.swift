@@ -9,89 +9,190 @@ import ComposableArchitecture
 import Models
 import SwiftUI
 
+/// 방 대기, 게임, 결과 화면. 상태를 그리고 액션을 보내기만 한다.
 public struct RoomView: View {
-    public let store: StoreOf<RoomReducer>
-    private let columns = [GridItem(.adaptive(minimum: 56), spacing: 10)]
-    
+    @Bindable public var store: StoreOf<RoomReducer>
+
     public init(store: StoreOf<RoomReducer>) {
         self.store = store
     }
-    
+
     public var body: some View {
-        VStack {
-            Text("ROOMID: \(store.roomID)\n")
-            Text("Players: \(store.players.keys.debugDescription)\n")
-            Text("RoomState: \(store.roomState)\n")
-            Text("MAXPLAYER: \(store.maxPlayers)\n")
-            Text("HostID: \(store.hostID)\n")
-            Text("serverConnectionState: \(store.serverConnectionState)\n")
-            Text("GameResult: \(store.gameResult)\n")
-            
-            if let gameStore = store.scope(state: \.gameState, action: \.game) {
-                
-                HStack {
-                    Image(systemName: "clock.fill")
-                        .foregroundColor(gameStore.remainingTime <= 5 ? .red : .orange)
-                    
-                    Text("\(gameStore.remainingTime)초")
-                        .font(.title)
-                        .monospacedDigit()
-                        .fontWeight(.bold)
-                        .foregroundColor(gameStore.remainingTime <= 5 ? .red : .primary)
+        VStack(spacing: 16) {
+            switch store.stage {
+            case .waiting:
+                RoomWaitingView(store: store)
+            case .playing:
+                if let gameStore = store.scope(state: \.game, action: \.game) {
+                    GameView(store: gameStore)
                 }
-                .padding(.bottom, 10)
-                .animation(.default, value: gameStore.remainingTime)
-                
-                Text(gameStore.selectedLetters.joined())
-                    .bold()
-                
-                let cards = gameStore.roundData?.letterCards ?? []
-                
-                if cards.isEmpty {
-                    Text("카드를 불러오는 중이거나 없습니다... 👾")
-                        .foregroundColor(.gray)
-                        .padding()
-                } else {
-                    LazyVGrid(columns: columns, spacing: 10) {
-                        ForEach(Array(cards.enumerated()), id: \.offset) { index, letter in
-                            Button {
-                                gameStore.send(.selectLetter(index))
-                            } label: {
-                                Text(letter)
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                                    .frame(width: 48, height: 48)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(Color.orange, lineWidth: 2)
-                                    )
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .id(cards.joined())
-                }
-                
-                Button("SUBMIT") {
-                    gameStore.send(.submit(gameStore.selectedLetters.joined()))
-                }
-                
-            } else {
-                Text("게임 시작을 기다리는 중... ⏱️")
-                    .foregroundColor(.secondary)
-                    .padding()
+            case .finished, .aborted:
+                RoomResultView(store: store)
             }
-            
-            Button("GAME START") {
-                store.send(.toServer(.startGame(category: Category(startYear: 2010,
-                                                                   endYear: 2020,
-                                                                   artistType: "Person",
-                                                                   country: "South Korea",
-                                                                   gender: "Male",
-                                                                   genre: "ballad"),
-                                                trackCount: 3, timeLimit: store.timeLimit)))
+
+            if store.isLeaving {
+                ProgressView("나가는 중")
+            }
+
+            Button("나가기") {
+                store.send(.leaveTapped)
+            }
+            .disabled(!store.canLeave)
+        }
+        .padding()
+        .alert($store.scope(state: \.alert, action: \.alert))
+    }
+}
+
+/// REQ-ROOM-01: 참가자 목록(서버 순서), 방장, 나, 인원, 확정 조합
+private struct RoomWaitingView: View {
+    let store: StoreOf<RoomReducer>
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("참가자 \(store.players.count)/\(store.maxPlayers)")
+                .font(.headline)
+
+            ForEach(store.players, id: \.self) { playerID in
+                HStack {
+                    if let label = store.state.playerLabel(playerID) {
+                        Text(label.title)
+                            .foregroundStyle(label == .myself ? .blue : .primary)
+                    }
+                    if playerID == store.hostID {
+                        Text(RoomViewText.host).foregroundStyle(.orange)
+                    }
+                }
+            }
+
+            CategoryView(label: store.categoryLabel)
+
+            Button("시작") {
+                store.send(.startTapped)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!store.canStart)
+        }
+    }
+}
+
+private struct CategoryView: View {
+    let label: RoomReducer.CategoryLabel
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("\(RoomViewText.decade): \(label.decade)")
+            Text("\(RoomViewText.artistType): \(label.artistType)")
+            Text("\(RoomViewText.gender): \(label.gender)")
+            Text("\(RoomViewText.genre): \(label.genre)")
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+    }
+}
+
+/// REQ-GAME-04, 05: 승자와 점수, 또는 중단 사유
+private struct RoomResultView: View {
+    let store: StoreOf<RoomReducer>
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if let abortMessage = store.abortMessage {
+                Text(abortMessage)
+                    .font(.headline)
+            } else {
+                if let winner = store.winnerLabel {
+                    Text("\(RoomViewText.winner): \(winner.title)")
+                        .font(.headline)
+                } else {
+                    Text(RoomViewText.noWinner)
+                        .font(.headline)
+                }
+                ForEach(store.scoreboard) { score in
+                    HStack {
+                        Text(score.label.title)
+                            .foregroundStyle(score.label == .myself ? .blue : .primary)
+                        Spacer()
+                        Text("\(score.score)")
+                    }
+                }
             }
         }
-        .onAppear { store.send(.onAppear) }
+    }
+}
+
+/// 기존 게임 화면 (REQ-GAME-01)
+private struct GameView: View {
+    let store: StoreOf<GameReducer>
+    private let columns = [GridItem(.adaptive(minimum: 56), spacing: 10)]
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Image(systemName: "clock.fill")
+                    .foregroundColor(store.remainingTime <= 5 ? .red : .orange)
+
+                Text("\(store.remainingTime)초")
+                    .font(.title)
+                    .monospacedDigit()
+                    .fontWeight(.bold)
+                    .foregroundColor(store.remainingTime <= 5 ? .red : .primary)
+            }
+            .animation(.default, value: store.remainingTime)
+
+            Text(store.selectedLetters.joined())
+                .bold()
+
+            let cards = store.roundData?.letterCards ?? []
+
+            if cards.isEmpty {
+                Text("카드를 불러오는 중이거나 없습니다... 👾")
+                    .foregroundColor(.gray)
+                    .padding()
+            } else {
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(Array(cards.enumerated()), id: \.offset) { index, letter in
+                        Button {
+                            store.send(.selectLetter(index))
+                        } label: {
+                            Text(letter)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .frame(width: 48, height: 48)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.orange, lineWidth: 2)
+                                )
+                        }
+                    }
+                }
+                .padding(.horizontal)
+                .id(cards.joined())
+            }
+
+            Button("SUBMIT") {
+                store.send(.submit(store.selectedLetters.joined()))
+            }
+        }
+    }
+}
+
+/// 방 화면 문구 (임시). 참가자 표시는 playerID 대신 "나", "상대 N"을 쓴다.
+private enum RoomViewText {
+    static let host = "방장"
+    static let decade = "연대"
+    static let artistType = "구성"
+    static let gender = "성별"
+    static let genre = "장르"
+    static let winner = "승자"
+    static let noWinner = "승자 없음"
+}
+
+private extension RoomReducer.PlayerLabel {
+    var title: String {
+        switch self {
+        case .myself: "나"
+        case let .opponent(number): "상대 \(number)"
+        }
     }
 }
