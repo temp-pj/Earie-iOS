@@ -109,8 +109,30 @@ extension SessionClient {
         do {
             return try MessageCodec.decodeServer(Data(text.utf8))
         } catch {
-            logger.error("수신 메시지 디코딩 실패, 버림: \(String(describing: error), privacy: .public) / 원문: \(text, privacy: .private)")
+            // 오류 값에도 받은 내용(모르는 type 문자열 등)이 들어갈 수 있어서, 공개 로그에는 분류만 남긴다.
+            logger.error("수신 메시지 디코딩 실패, 버림: \(decodeFailureCategory(error), privacy: .public) / 오류: \(String(describing: error), privacy: .private) / 원문: \(text, privacy: .private)")
             return nil
+        }
+    }
+
+    /// 받은 메시지의 값이 들어가지 않는 디코딩 실패 분류.
+    /// `invalidField`의 필드 이름은 코덱 코드가 정한 상수라 그대로 둔다.
+    static func decodeFailureCategory(_ error: any Error) -> String {
+        switch error {
+        case MessageCodecError.unknownType:
+            return "unknownType"
+        case let MessageCodecError.invalidField(field):
+            return "invalidField(\(field))"
+        case let decodingError as DecodingError:
+            switch decodingError {
+            case .typeMismatch: return "typeMismatch"
+            case .valueNotFound: return "valueNotFound"
+            case .keyNotFound: return "keyNotFound"
+            case .dataCorrupted: return "dataCorrupted"
+            @unknown default: return "decodingError"
+            }
+        default:
+            return "other"
         }
     }
 }
