@@ -31,6 +31,8 @@ public struct RoomReducer {
         public var category: MatchCategory
         public var stage: Stage
         public var isLeaving: Bool
+        /// START_GAME을 보내고 GAME_STARTED나 ROOM_COMMAND_FAILED를 기다리는 중 (REQ-ROOM-09)
+        public var isStartRequesting: Bool
         public var game: GameReducer.State?
         /// 명령 실패 알럿과 게임 중 나가기 확인창
         @Presents public var alert: AlertState<Action.Alert>?
@@ -44,6 +46,7 @@ public struct RoomReducer {
             category: MatchCategory,
             stage: Stage = .waiting,
             isLeaving: Bool = false,
+            isStartRequesting: Bool = false,
             game: GameReducer.State? = nil,
             alert: AlertState<Action.Alert>? = nil
         ) {
@@ -55,6 +58,7 @@ public struct RoomReducer {
             self.category = category
             self.stage = stage
             self.isLeaving = isLeaving
+            self.isStartRequesting = isStartRequesting
             self.game = game
             self.alert = alert
         }
@@ -73,9 +77,10 @@ public struct RoomReducer {
 
         public var isHost: Bool { hostID == myPlayerID }
 
-        /// REQ-ROOM-03: 내가 방장이고, 2명 이상이고, 대기 상태이고, 나가는 중이 아닐 때만
+        /// REQ-ROOM-03: 내가 방장이고, 2명 이상이고, 대기 상태이고, 나가는 중이 아닐 때만.
+        /// REQ-ROOM-09: 시작 요청 중에도 비활성
         public var canStart: Bool {
-            isHost && players.count >= 2 && stage == .waiting && !isLeaving
+            isHost && players.count >= 2 && stage == .waiting && !isLeaving && !isStartRequesting
         }
 
         /// REQ-ROOM-06: 나가는 중에는 나가기를 다시 보내지 않는다
@@ -158,6 +163,7 @@ public struct RoomReducer {
 
             case .startTapped:
                 guard state.canStart else { return .none }
+                state.isStartRequesting = true
                 return .send(.delegate(.send(.startGame(roomID: state.roomID))))
 
             case .leaveTapped:
@@ -217,6 +223,7 @@ public struct RoomReducer {
             return .none
 
         case .commandFailed(let code):
+            state.isStartRequesting = false
             state.alert = RoomCopy.commandFailedAlert(code)
             return .none
 
@@ -228,6 +235,8 @@ public struct RoomReducer {
     private func handleGame(_ event: RoomServerEvent, state: inout State) -> Effect<Action> {
         switch event {
         case .gameStarted:
+            // REQ-ROOM-09: 시작 응답으로 시작 요청 중을 푼다
+            state.isStartRequesting = false
             // 게임·결과 중의 GAME_STARTED는 무시 (requirements 8). 나가는 중이면 그 상태를 유지한다 (EDGE-13)
             guard state.stage == .waiting else { return .none }
             state.stage = .playing

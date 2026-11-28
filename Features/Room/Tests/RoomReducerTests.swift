@@ -30,6 +30,7 @@ final class RoomReducerTests: XCTestCase {
         XCTAssertEqual(state.category, .roomFixture)
         XCTAssertEqual(state.stage, .waiting)
         XCTAssertFalse(state.isLeaving)
+        XCTAssertFalse(state.isStartRequesting)
         XCTAssertNil(state.game)
         XCTAssertNil(state.alert)
         XCTAssertFalse(state.isHost)
@@ -72,7 +73,9 @@ final class RoomReducerTests: XCTestCase {
         let store = makeStore()
         XCTAssertTrue(store.state.canStart)
 
-        await store.send(.startTapped)
+        await store.send(.startTapped) {
+            $0.isStartRequesting = true
+        }
         await store.receive(\.delegate.send, .startGame(roomID: TestID.room))
     }
 
@@ -128,6 +131,59 @@ final class RoomReducerTests: XCTestCase {
         }
         XCTAssertTrue(store.state.isHost)
         XCTAssertTrue(store.state.canStart)
+    }
+
+    // MARK: - 시작 요청 중 (REQ-ROOM-09)
+
+    func test_시작을_연타해도_START_GAME은_한_번만_보낸다() async {
+        let store = makeStore()
+
+        await store.send(.startTapped) {
+            $0.isStartRequesting = true
+        }
+        await store.receive(\.delegate.send, .startGame(roomID: TestID.room))
+        XCTAssertFalse(store.state.canStart)
+
+        await store.send(.startTapped)
+        await store.send(.startTapped)
+    }
+
+    func test_ROOM_COMMAND_FAILED를_받으면_시작_요청_중이_풀려_다시_누를_수_있다() async {
+        let store = makeStore()
+
+        await store.send(.startTapped) {
+            $0.isStartRequesting = true
+        }
+        await store.receive(\.delegate.send, .startGame(roomID: TestID.room))
+
+        await store.send(.server(.commandFailed(.internalError))) {
+            $0.isStartRequesting = false
+            $0.alert = RoomCopy.commandFailedAlert(.internalError)
+        }
+        XCTAssertTrue(store.state.canStart)
+        await store.send(.alert(.dismiss)) {
+            $0.alert = nil
+        }
+
+        await store.send(.startTapped) {
+            $0.isStartRequesting = true
+        }
+        await store.receive(\.delegate.send, .startGame(roomID: TestID.room))
+    }
+
+    func test_GAME_STARTED를_받으면_시작_요청_중이_풀린다() async {
+        let store = makeStore()
+
+        await store.send(.startTapped) {
+            $0.isStartRequesting = true
+        }
+        await store.receive(\.delegate.send, .startGame(roomID: TestID.room))
+
+        await store.send(.server(.gameStarted)) {
+            $0.isStartRequesting = false
+            $0.stage = .playing
+            $0.game = GameReducer.State()
+        }
     }
 
     // MARK: - 나가기와 나가는 중 (REQ-ROOM-05, 06, 08)
@@ -292,9 +348,12 @@ final class RoomGameTests: XCTestCase {
         let store = makeStore(audio: audio, clock: clock)
 
         // 시작
-        await store.send(.startTapped)
+        await store.send(.startTapped) {
+            $0.isStartRequesting = true
+        }
         await store.receive(\.delegate.send, .startGame(roomID: TestID.room))
         await store.send(.server(.gameStarted)) {
+            $0.isStartRequesting = false
             $0.stage = .playing
             $0.game = GameReducer.State()
         }

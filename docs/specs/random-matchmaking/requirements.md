@@ -136,6 +136,7 @@
 - REQ-ROOM-07: 현재 방의 PLAYER_KICKED를 받으면 "방에서 내보내졌어요." 알럿을 띄우고 조건 선택 화면으로 돌아간다. 연결은 유지한다.
 - REQ-ROOM-08: 게임 화면에 나가기 버튼을 둔다. 누르면 "게임에서 나갈까요?" 확인창을 띄우고, 확인하면 REQ-ROOM-05를 따른다. 방 대기와 결과 화면의 나가기는 확인창 없이 바로 REQ-ROOM-05를 따른다.
   - 근거: 명시적인 퇴장 수단이 없으면 사용자가 앱을 백그라운드로 보내는 방식으로 나가게 된다. 이때 연결이 바로 끊긴다는 보장이 없어서, 서버가 그 사람의 곡 준비 완료를 기다리다 30초 뒤 남은 사람 모두의 게임을 GAME_ABORTED(INTERNAL_ERROR)로 끝낼 수 있다. 확인창은 글자 카드를 누르다 잘못 누르는 것을 막는다.
+- REQ-ROOM-09: 시작 버튼을 누르면 START_GAME을 보내고 '시작 요청 중' 상태가 된다. 이 상태에서는 시작 버튼이 비활성이다. 게임 시작 응답 또는 ROOM_COMMAND_FAILED를 받으면 상태가 풀린다.
 
 ### 게임과 결과
 - REQ-GAME-01: 현재 방의 GAME_STARTED를 받으면 게임 화면으로 바뀐다. 라운드 진행, 글자 카드, 정답 제출, 오답 페널티, 카운트다운, 라운드 결과는 기존 GameReducer 동작을 유지한다.
@@ -217,7 +218,7 @@
 | DONE-06 | 매칭 탭 → 연결 → MATCH_REQUEST, 이미 연결된 경우 재사용 | REQ-MATCH-01~04 | 요청 1회, 형식 일치 |
 | DONE-07 | 취소, 연결 중 취소, 취소 후 재매칭, 늦은 응답 | REQ-CANCEL-01~04, EDGE-01~05 | 8번 표대로 |
 | DONE-08 | MATCH_FAILED 코드별, 연결 끊김, 조건 선택 화면에서의 끊김, 연결 시도 10초 초과 | REQ-FAIL-01, REQ-FAIL-02, REQ-FAIL-05 | 문구별 알럿과 조건 선택 / 조건 선택 화면에서는 알럿 없음 |
-| DONE-09 | 방 참가자·방장 갱신과 시작 버튼 활성 판정 | REQ-ROOM-01~03, EDGE-09, EDGE-10 | 규칙대로 |
+| DONE-09 | 방 참가자·방장 갱신과 시작 버튼 활성 판정, 시작 요청 중 | REQ-ROOM-01~03, REQ-ROOM-09, EDGE-09, EDGE-10 | 규칙대로 |
 | DONE-10 | 나가기, 게임 중 나가기 확인창, 나가는 중, ROOM_LEFT, 강퇴, ROOM_COMMAND_FAILED 알럿 | REQ-ROOM-04~08, EDGE-08, EDGE-13 | 8번 표대로 |
 | DONE-11 | 게임 진행과 GAME_OVER, GAME_ABORTED | REQ-GAME-01~06, EDGE-11, EDGE-12 | 결과 화면, 음악 정지 |
 | DONE-12 | roomID·requestID 거르기 | REQ-FILTER-01~03, EDGE-07 | 거른 메시지로 상태 변화 없음 |
