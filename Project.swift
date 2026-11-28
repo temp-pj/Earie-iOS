@@ -181,79 +181,11 @@ let project = Project(
                     ]
                    ),
         
-            .target(
-                name: "ClientRoom",
-                destinations: .iOS,
-                product: .staticFramework,
-                bundleId: "io.tuist.MGAME.ClientRoom",
-                sources: ["Clients/RoomClient/Interface/Sources/**"],
-                dependencies: [
-                    .target(name: "Models"),
-                    .external(name: "ComposableArchitecture")
-                ]
-            ),
         
-            .target(name: "ClientRoomLive",
-                    destinations: .iOS,
-                    product: .staticFramework,
-                    bundleId: "io.tuist.MGAME.ClientRoomLive",
-                    sources: ["Clients/RoomClient/Live/Sources/**"],
-                    dependencies: [
-                        .target(name: "ClientRoom"),
-                        .target(name: "Models"),
-                        .external(name: "ComposableArchitecture")
-                    ]
-                   ),
         
-            .target(
-                name: "ClientRoomTest",
-                destinations: .iOS,
-                product: .staticFramework,
-                bundleId: "io.tuist.MGAME.ClientRoomTest",
-                sources: ["Clients/RoomClient/Test/Sources/**"],
-                dependencies: [
-                    .target(name: "ClientRoom"),
-                    .target(name: "Models"),
-                    .external(name: "ComposableArchitecture")
-                ]
-            ),
         
-            .target(
-                name: "ClientRoomSession",
-                destinations: .iOS,
-                product: .staticFramework,
-                bundleId: "io.tuist.MGAME.ClientRoomSession",
-                sources: ["Clients/RoomSessionClient/Interface/Sources/**"],
-                dependencies: [
-                    .target(name: "Models"),
-                    .external(name: "ComposableArchitecture")
-                ]
-            ),
         
-            .target(name: "ClientRoomSessionLive",
-                    destinations: .iOS,
-                    product: .staticFramework,
-                    bundleId: "io.tuist.MGAME.ClientRoomSessionLive",
-                    sources: ["Clients/RoomSessionClient/Live/Sources/**"],
-                    dependencies: [
-                        .target(name: "Models"),
-                        .target(name: "ClientRoomSession"),
-                        .target(name: "ClientWebSocket"),
-                        .external(name: "ComposableArchitecture")
-                    ]
-                   ),
         
-            .target(name: "ClientRoomSessionTest",
-                    destinations: .iOS,
-                    product: .staticFramework,
-                    bundleId: "io.tuist.MGAME.ClientRoomSessionTest",
-                    sources: ["Clients/RoomSessionClient/Test/Sources/**"],
-                    dependencies: [
-                        .target(name: "Models"),
-                        .target(name: "ClientRoomSession"),
-                        .external(name: "ComposableArchitecture")
-                    ]
-                   ),
         
             .target(name: "ClientWebSocket",
                     destinations: .iOS,
@@ -388,8 +320,6 @@ let project = Project(
             dependencies: [
                 .target(name: "MDS"),
                 .target(name: "Models"),
-                .target(name: "ClientAuth"),
-                .target(name: "ClientRoom"),
                 .target(name: "ClientCatalog"),
                 .external(name: "ComposableArchitecture")
             ]
@@ -417,7 +347,6 @@ let project = Project(
                 dependencies: [
                     .target(name: "MDS"),
                     .target(name: "Models"),
-                    .target(name: "ClientRoomSession"),
                     .target(name: "ClientMusicEntitlement"),
                     .target(name: "ClientAudio"),
                     .external(name: "ComposableArchitecture")
@@ -431,7 +360,6 @@ let project = Project(
                     sources: ["Features/Room/Tests/**"],
                     dependencies: [
                         .target(name: "FeatureRoom"),
-                        .target(name: "ClientRoomSessionTest"),
                         .target(name: "ClientAudioTest"),
                         .target(name: "ClientMusicEntitlementTest")
                     ]
@@ -471,10 +399,7 @@ let project = Project(
                     .target(name: "FeatureRoom"),
                     .target(name: "ClientAudioLive"),
                     .target(name: "ClientAuthLive"),
-                    .target(name: "ClientRoomLive"),
                     .target(name: "ClientMusicEntitlementLive"),
-                    .target(name: "ClientRoomSessionLive"),
-                    .target(name: "ClientWebSocketLive"),
                     .target(name: "ClientSession"),
                     .target(name: "ClientSessionLive"),
                     .target(name: "ClientCatalog"),
