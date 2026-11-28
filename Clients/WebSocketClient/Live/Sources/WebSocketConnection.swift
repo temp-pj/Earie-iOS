@@ -61,7 +61,7 @@ public actor WebSocketConnection {
     private func startListening() {
         guard let task, let continuation else { return }
         
-        Task { [task, continuation] in
+        Task { [weak self, task, continuation] in
             while true {
                 do {
                     let message = try await task.receive()
@@ -84,6 +84,7 @@ public actor WebSocketConnection {
                     }
                     continuation.yield(.disconnected(reason))
                     continuation.finish()
+                    await self?.connectionEnded(task)
                     return
                 }
             }
@@ -94,6 +95,24 @@ public actor WebSocketConnection {
         task?.cancel(with: .goingAway, reason: nil)
         continuation?.yield(.disconnected(.normal))
         continuation?.finish()
+        continuation = nil
+        closeSession()
+    }
+    
+    /// 수신이 끝난 연결(서버 종료, 네트워크 오류)의 세션을 정리한다.
+    /// 그사이 새 연결로 바뀌었으면 새 연결은 건드리지 않는다.
+    private func connectionEnded(_ endedTask: URLSessionWebSocketTask) {
+        guard task === endedTask else { return }
+        continuation = nil
+        closeSession()
+    }
+    
+    /// URLSession은 invalidate될 때까지 delegate를 잡고 해제되지 않는다.
+    /// 연결이 끝날 때마다 invalidate해서 재연결할 때 세션이 쌓이지 않게 한다.
+    /// 취소한 태스크의 close frame이 나갈 수 있도록 `finishTasksAndInvalidate`를 쓴다.
+    private func closeSession() {
+        session?.finishTasksAndInvalidate()
+        session = nil
         task = nil
     }
     

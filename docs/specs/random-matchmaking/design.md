@@ -25,7 +25,7 @@
 - CI(`fastlane ci`): `swiftlint lint --strict`, `tuist install`, `tuist generate`, `xcodebuild build`만 한다. 테스트를 실행하지 않는다.
 
 ### 유지할 것
-- `WebSocketClient` 인터페이스와 `WebSocketConnection` 구현
+- `WebSocketClient` 인터페이스
 - `GameReducer`의 라운드 진행 규칙과 페널티 동작 (입력 이벤트만 v1 메시지에서 오도록 바뀐다)
 - `AudioClient`, `MusicEntitlementClient` 인터페이스와 구현
 - `Login` Feature와 `AuthClient` (건드리지 않는다)
@@ -39,6 +39,7 @@
 - `RoomReducer`는 직접 구독하지 않고, 소켓을 끊지 않으며, 서버 송신을 delegate로 App에 맡긴다.
 - `ContentView`를 삭제하고 App 상태를 그리는 `RootView`로 대체한다.
 - CI에 테스트 실행을 추가한다.
+- `WebSocketConnection`은 연결이 끊기거나 다시 연결할 때 이전 `URLSession`을 invalidate한다. 연결마다 delegate를 가진 세션을 만들고 해제하지 않아서, 재연결할 때마다 세션이 쌓였기 때문이다. 공개 인터페이스와 이벤트 순서는 바꾸지 않는다.
 
 ## 2. 기술 제약
 
@@ -68,7 +69,8 @@
 | `ClientCatalog` (Interface) | `CatalogClient`, `CategoryPreferenceClient` 정의 | 구현 |
 | `ClientCatalogLive` | 번들 `catalog-projection.json` 읽기, `UserDefaults` 저장·읽기 | 조합 활성 판정 |
 | `ClientCatalogTest` | 테스트용 구현 (카탈로그 주입, 메모리 저장) | |
-| `ClientWebSocket` / `Live` / `Test` | 기존 그대로 | |
+| `ClientWebSocket` / `Test` | 기존 그대로 | |
+| `ClientWebSocketLive` | 기존 동작 그대로. `WebSocketConnection`은 연결이 끊기거나 다시 연결할 때 이전 `URLSession`을 invalidate한다 (1번 "바꿀 것") | |
 | `FeatureLobby` | 조건 선택, 후보 활성 판정, 매칭 대기 단계, 취소, 조합 저장·복원 | 연결, 송신, 메시지 거르기 |
 | `FeatureRoom` | 방 대기, 나가는 중, 게임(`GameReducer`), 결과, 곡 준비 | 연결, 송신, 메시지 거르기 |
 | `M_GAME` (App) | `AppFeature`: 연결 수명, 스트림 단일 소비, 메시지 거르기와 라우팅, 송신, 화면 단계 전환, 알럿 / `RootView` | 각 화면 내부 규칙 |
